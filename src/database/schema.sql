@@ -1,226 +1,131 @@
--- ===== AUTENTICAÇÃO E USUÁRIOS =====
+-- ==================== USUÁRIO ====================
 CREATE TABLE IF NOT EXISTS usuarios (
-  id INT PRIMARY KEY AUTO_INCREMENT,
+  id VARCHAR(255) PRIMARY KEY,
+  nome VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   senha VARCHAR(255) NOT NULL,
+  ativo BOOLEAN DEFAULT true,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_email (email)
+);
+
+-- ==================== MERCADORIA ====================
+CREATE TABLE IF NOT EXISTS mercadorias (
+  id VARCHAR(255) PRIMARY KEY,
   nome VARCHAR(255) NOT NULL,
-  role ENUM('admin', 'operador', 'motorista') NOT NULL DEFAULT 'operador',
-  ativo BOOLEAN DEFAULT TRUE,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_email (email),
-  INDEX idx_role (role)
+  tipo VARCHAR(100) NOT NULL,
+  tarifaPorSaca FLOAT NOT NULL,
+  pesoMedioSaca FLOAT NOT NULL DEFAULT 25,
+  ativo BOOLEAN DEFAULT true,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_nome (nome)
 );
 
--- ===== GESTÃO DE RECURSOS =====
-CREATE TABLE IF NOT EXISTS caminhoes (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  placa VARCHAR(10) NOT NULL UNIQUE,
-  modelo VARCHAR(255) NOT NULL,
-  ano INT NOT NULL,
-  capacidade_sacas INT NOT NULL,
-  capacidade_toneladas DECIMAL(10, 2) NOT NULL,
-  status ENUM('ativo', 'manutencao', 'inativo') DEFAULT 'ativo',
-  ultimo_motorista_id INT,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (ultimo_motorista_id) REFERENCES motoristas(id) ON DELETE SET NULL,
-  INDEX idx_status (status),
-  INDEX idx_placa (placa)
-);
-
+-- ==================== MOTORISTA ====================
 CREATE TABLE IF NOT EXISTS motoristas (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  usuario_id INT NOT NULL UNIQUE,
-  cnh VARCHAR(20) NOT NULL UNIQUE,
-  cnh_validade DATE NOT NULL,
-  crlv VARCHAR(20),
-  telefone VARCHAR(20),
-  cidade_origem VARCHAR(255),
-  data_nascimento DATE,
-  status ENUM('ativo', 'inativo', 'afastado') DEFAULT 'ativo',
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
-  INDEX idx_cnh (cnh),
+  id VARCHAR(255) PRIMARY KEY,
+  nome VARCHAR(255) NOT NULL,
+  cpf VARCHAR(11) NOT NULL UNIQUE,
+  telefone VARCHAR(20) NOT NULL,
+  status ENUM('ativo', 'inativo', 'ferias') DEFAULT 'ativo',
+  receitaGerada FLOAT DEFAULT 0,
+  viagensRealizadas INT DEFAULT 0,
+  dataAdmissao DATE,
+  ativo BOOLEAN DEFAULT true,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_cpf (cpf),
   INDEX idx_status (status)
 );
 
-CREATE TABLE IF NOT EXISTS mercadorias (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  nome VARCHAR(255) NOT NULL,
-  tipo ENUM('amendoim', 'soja', 'milho', 'outro') NOT NULL,
-  densidade DECIMAL(8, 4),
-  preco_medio DECIMAL(12, 2),
-  unidade ENUM('saca', 'tonelada', 'kg') DEFAULT 'saca',
-  ativo BOOLEAN DEFAULT TRUE,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_tipo (tipo)
+-- ==================== CAMINHÃO ====================
+CREATE TABLE IF NOT EXISTS caminhoes (
+  id VARCHAR(255) PRIMARY KEY,
+  placa VARCHAR(20) NOT NULL UNIQUE,
+  modelo VARCHAR(255) NOT NULL,
+  capacidade FLOAT NOT NULL,
+  status ENUM('disponivel', 'em_viagem', 'manutencao') DEFAULT 'disponivel',
+  kmRodados FLOAT DEFAULT 0,
+  ativo BOOLEAN DEFAULT true,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_placa (placa),
+  INDEX idx_status (status)
 );
 
--- ===== FRETES E ROTAS =====
+-- ==================== TABELA DE REFERÊNCIA: CUSTO ABASTECIMENTO ====================
+CREATE TABLE IF NOT EXISTS custo_abastecimento (
+  id VARCHAR(255) PRIMARY KEY,
+  caminhaoId VARCHAR(255) NOT NULL,
+  custoLitro FLOAT NOT NULL,
+  dataAtualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (caminhaoId) REFERENCES caminhoes(id) ON DELETE CASCADE,
+  UNIQUE INDEX idx_caminhao_unico (caminhaoId)
+);
+
+-- ==================== TABELA DE REFERÊNCIA: CUSTO MOTORISTA ====================
+CREATE TABLE IF NOT EXISTS custo_motorista (
+  id VARCHAR(255) PRIMARY KEY,
+  motoristaId VARCHAR(255) NOT NULL,
+  diaria FLOAT NOT NULL,
+  adicionalPernoite FLOAT NOT NULL,
+  dataAtualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (motoristaId) REFERENCES motoristas(id) ON DELETE CASCADE,
+  UNIQUE INDEX idx_motorista_unico (motoristaId)
+);
+
+-- ==================== FRETE (Principal) ====================
 CREATE TABLE IF NOT EXISTS fretes (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  numero_frete VARCHAR(50) NOT NULL UNIQUE,
-  motorista_id INT NOT NULL,
-  caminhao_id INT NOT NULL,
-  mercadoria_id INT NOT NULL,
-  quantidade_sacas INT NOT NULL,
-  peso_total_toneladas DECIMAL(10, 2) NOT NULL,
+  id VARCHAR(255) PRIMARY KEY,
   origem VARCHAR(255) NOT NULL,
   destino VARCHAR(255) NOT NULL,
-  data_saida DATETIME NOT NULL,
-  data_chegada_prevista DATETIME,
-  data_chegada_real DATETIME,
   status ENUM('pendente', 'em_transito', 'concluido', 'cancelado') DEFAULT 'pendente',
-  valor_frete DECIMAL(12, 2) NOT NULL,
-  combustivel_gasto DECIMAL(10, 2),
-  pedagio DECIMAL(10, 2),
-  notas TEXT,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (motorista_id) REFERENCES motoristas(id) ON DELETE RESTRICT,
-  FOREIGN KEY (caminhao_id) REFERENCES caminhoes(id) ON DELETE RESTRICT,
-  FOREIGN KEY (mercadoria_id) REFERENCES mercadorias(id) ON DELETE RESTRICT,
+  receita FLOAT DEFAULT 0,
+  custos FLOAT DEFAULT 0,
+  resultado FLOAT DEFAULT 0,
+  descricao TEXT,
+  
+  -- Relacionamentos
+  motoristaId VARCHAR(255) NOT NULL,
+  caminhaoId VARCHAR(255) NOT NULL,
+  mercadoriaId VARCHAR(255),
+  
+  -- Quantidade de sacas (mudou de descrição genérica para quantidade)
+  quantidadeSacas INT DEFAULT 0,
+  
+  -- Datas
+  dataPartida DATETIME,
+  dataChegada DATETIME,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (motoristaId) REFERENCES motoristas(id) ON DELETE CASCADE,
+  FOREIGN KEY (caminhaoId) REFERENCES caminhoes(id) ON DELETE CASCADE,
+  FOREIGN KEY (mercadoriaId) REFERENCES mercadorias(id) ON SET NULL,
   INDEX idx_status (status),
-  INDEX idx_motorista (motorista_id),
-  INDEX idx_caminhao (caminhao_id),
-  INDEX idx_data_saida (data_saida),
-  INDEX idx_numero_frete (numero_frete)
+  INDEX idx_motorista (motoristaId),
+  INDEX idx_caminhao (caminhaoId),
+  INDEX idx_mercadoria (mercadoriaId),
+  INDEX idx_data (createdAt)
 );
 
-CREATE TABLE IF NOT EXISTS rastreamento_frete (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  frete_id INT NOT NULL,
-  latitude DECIMAL(10, 8),
-  longitude DECIMAL(11, 8),
-  localizacao VARCHAR(255),
-  status ENUM('saido', 'em_rota', 'parado', 'chegou') NOT NULL,
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (frete_id) REFERENCES fretes(id) ON DELETE CASCADE,
-  INDEX idx_frete (frete_id),
-  INDEX idx_timestamp (timestamp)
-);
-
--- ===== CUSTOS E DESPESAS =====
-CREATE TABLE IF NOT EXISTS custos_frete (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  frete_id INT NOT NULL,
-  tipo ENUM('combustivel', 'pedagio', 'manutencao', 'alimentacao', 'outro') NOT NULL,
-  descricao VARCHAR(255),
-  valor DECIMAL(12, 2) NOT NULL,
-  data_custo DATE NOT NULL,
-  comprovante_url VARCHAR(500),
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (frete_id) REFERENCES fretes(id) ON DELETE CASCADE,
-  INDEX idx_frete (frete_id),
-  INDEX idx_tipo (tipo),
-  INDEX idx_data_custo (data_custo)
-);
-
-CREATE TABLE IF NOT EXISTS manutencao_caminhao (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  caminhao_id INT NOT NULL,
-  tipo ENUM('preventiva', 'corretiva', 'revisao') DEFAULT 'preventiva',
-  descricao VARCHAR(500) NOT NULL,
-  valor DECIMAL(12, 2) NOT NULL,
-  data_manutencao DATE NOT NULL,
-  proxima_manutencao DATE,
-  quilometragem INT,
-  notas TEXT,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (caminhao_id) REFERENCES caminhoes(id) ON DELETE CASCADE,
-  INDEX idx_caminhao (caminhao_id),
-  INDEX idx_data_manutencao (data_manutencao)
-);
-
--- ===== INDICADORES E RELATÓRIOS =====
-CREATE TABLE IF NOT EXISTS kpi_mensal (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  mes INT NOT NULL,
-  ano INT NOT NULL,
-  sacas_transportadas INT DEFAULT 0,
-  toneladas_transportadas DECIMAL(12, 2) DEFAULT 0,
-  fretes_realizados INT DEFAULT 0,
-  receita_total DECIMAL(15, 2) DEFAULT 0,
-  custo_total DECIMAL(15, 2) DEFAULT 0,
-  lucro_liquido DECIMAL(15, 2) DEFAULT 0,
-  taxa_ocupacao_media DECIMAL(5, 2) DEFAULT 0,
-  custo_por_saca DECIMAL(10, 2) DEFAULT 0,
-  caminhoes_em_uso INT DEFAULT 0,
-  caminhoes_disponiveis INT DEFAULT 0,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY unique_mes_ano (mes, ano),
-  INDEX idx_ano (ano)
-);
-
-CREATE TABLE IF NOT EXISTS alertas (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  tipo ENUM('safra', 'eficiencia', 'custos', 'manutencao', 'performance') NOT NULL,
-  titulo VARCHAR(255) NOT NULL,
+-- ==================== CUSTO (Despesas adicionais) ====================
+CREATE TABLE IF NOT EXISTS custos (
+  id VARCHAR(255) PRIMARY KEY,
+  freteId VARCHAR(255) NOT NULL,
+  tipo ENUM('combustivel', 'manutencao', 'pedagio', 'outros') NOT NULL,
   descricao TEXT NOT NULL,
-  severidade ENUM('info', 'warning', 'critical') DEFAULT 'info',
-  lido BOOLEAN DEFAULT FALSE,
-  frete_id INT,
-  caminhao_id INT,
-  motorista_id INT,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (frete_id) REFERENCES fretes(id) ON DELETE SET NULL,
-  FOREIGN KEY (caminhao_id) REFERENCES caminhoes(id) ON DELETE SET NULL,
-  FOREIGN KEY (motorista_id) REFERENCES motoristas(id) ON DELETE SET NULL,
+  valor FLOAT NOT NULL,
+  data DATE NOT NULL,
+  comprovante BOOLEAN DEFAULT false,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (freteId) REFERENCES fretes(id) ON DELETE CASCADE,
+  INDEX idx_frete (freteId),
   INDEX idx_tipo (tipo),
-  INDEX idx_lido (lido),
-  INDEX idx_criado_em (criado_em)
-);
-
--- ===== DOCUMENTAÇÃO =====
-CREATE TABLE IF NOT EXISTS documentos_veiculo (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  caminhao_id INT NOT NULL,
-  tipo ENUM('crlv', 'seguro', 'inspecao', 'outro') NOT NULL,
-  numero_documento VARCHAR(100),
-  data_emissao DATE,
-  data_vencimento DATE,
-  arquivo_url VARCHAR(500),
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (caminhao_id) REFERENCES caminhoes(id) ON DELETE CASCADE,
-  INDEX idx_caminhao (caminhao_id),
-  INDEX idx_tipo (tipo),
-  INDEX idx_data_vencimento (data_vencimento)
-);
-
-CREATE TABLE IF NOT EXISTS documentos_motorista (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  motorista_id INT NOT NULL,
-  tipo ENUM('cnh', 'mopp', 'outro') NOT NULL,
-  numero_documento VARCHAR(100),
-  data_emissao DATE,
-  data_vencimento DATE,
-  arquivo_url VARCHAR(500),
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (motorista_id) REFERENCES motoristas(id) ON DELETE CASCADE,
-  INDEX idx_motorista (motorista_id),
-  INDEX idx_tipo (tipo),
-  INDEX idx_data_vencimento (data_vencimento)
-);
-
--- ===== AUDITORIA =====
-CREATE TABLE IF NOT EXISTS auditoria (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  usuario_id INT,
-  tabela VARCHAR(100) NOT NULL,
-  operacao ENUM('INSERT', 'UPDATE', 'DELETE') NOT NULL,
-  registro_id INT NOT NULL,
-  dados_anteriores JSON,
-  dados_novos JSON,
-  ip_address VARCHAR(45),
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL,
-  INDEX idx_usuario (usuario_id),
-  INDEX idx_tabela (tabela),
-  INDEX idx_timestamp (timestamp)
+  INDEX idx_data (data)
 );
 
