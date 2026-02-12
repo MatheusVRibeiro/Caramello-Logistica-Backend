@@ -36,7 +36,7 @@ const pool = mysql.createPool({
     console.error('\n❌ Falha ao conectar ao MySQL (AWS RDS):', errorMessage);
     console.error('🔹 Verifique se a porta 3306 está liberada na AWS.');
     console.error('🔹 Confirme usuário e senha no arquivo .env.');
-    console.error('🔹 Confira se o banco "logisticadb" está acessível.');
+    console.error('🔹 Confira se o banco "logistica_db" está acessível.');
   }
 })();
 

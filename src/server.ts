@@ -25,13 +25,18 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 
 // ==================== MIDDLEWARES ====================
 
-// CORS - Permitir múltiplas origens para desenvolvimento
+// CORS - Permitir múltiplas origens para desenvolvimento e produção
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8081';
+const isProduction = process.env.NODE_ENV === 'production';
+
 const allowedOrigins = [
   'http://localhost:3000',        // Painel Web
   'http://localhost:8081',        // Expo Web (React Native)
   'http://localhost:5173',        // Vite default
   'http://192.168.0.174:8081',    // Expo Web na rede local
   'http://192.168.0.174:19006',   // Expo Dev Server alternativo
+  frontendUrl,                    // URL do Frontend (do .env)
+  'https://agrotrack-frontend.onrender.com', // Frontend no Render (produção)
 ];
 
 app.use(
@@ -51,7 +56,7 @@ app.use(
       } else {
         console.log('❌ [CORS] Origin bloqueada:', origin);
         // Em desenvolvimento, permitir todas as origens localhost
-        if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168')) {
+        if (!isProduction && (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168'))) {
           console.log('⚠️ [CORS] Permitindo localhost/rede local em dev:', origin);
           callback(null, true);
         } else {
