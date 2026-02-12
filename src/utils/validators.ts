@@ -1,8 +1,55 @@
 import { z } from 'zod';
 
+// ==================== FUNÇÕES DE SANITIZAÇÃO ====================
+export const sanitizarCPF = (cpf: string): string => {
+  return cpf.replace(/\D/g, '');
+};
+
+export const sanitizarCNH = (cnh: string): string => {
+  return cnh.replace(/\D/g, '');
+};
+
+export const sanitizarTelefone = (telefone: string): string => {
+  return telefone.replace(/\D/g, '');
+};
+
+// ==================== VALIDAÇÃO DE CPF ====================
+export const isCPFValido = (cpf: string): boolean => {
+  const limpo = cpf.replace(/\D/g, '');
+  
+  if (limpo.length !== 11) return false;
+  
+  // CPFs inválidos conhecidos (todos dígitos iguais)
+  if (/^(\d)\1{10}$/.test(limpo)) return false;
+  
+  // Validação dos dígitos verificadores
+  let soma = 0;
+  let resto;
+  
+  // Primeiro dígito verificador
+  for (let i = 1; i <= 9; i++) {
+    soma += parseInt(limpo.substring(i - 1, i)) * (11 - i);
+  }
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(limpo.substring(9, 10))) return false;
+  
+  // Segundo dígito verificador
+  soma = 0;
+  for (let i = 1; i <= 10; i++) {
+    soma += parseInt(limpo.substring(i - 1, i)) * (12 - i);
+  }
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(limpo.substring(10, 11))) return false;
+  
+  return true;
+};
+
 const cpfSchema = z
   .string()
-  .regex(/^(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})$/, 'CPF invalido');
+  .regex(/^(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})$/, 'CPF invalido')
+  .refine((cpf) => isCPFValido(cpf), { message: 'CPF inválido para os padrões da Receita Federal' });
 
 // ==================== AUTENTICAÇÃO ====================
 export const LoginSchema = z.object({
@@ -211,6 +258,12 @@ export const AtualizarFazendaSchema = CriarFazendaSchema.partial().refine(
 );
 
 export type AtualizarFazendaInput = z.infer<typeof AtualizarFazendaSchema>;
+
+export const IncrementarVolumeSchema = z.object({
+  toneladas: z.number().positive('Toneladas deve ser um número positivo'),
+});
+
+export type IncrementarVolumeInput = z.infer<typeof IncrementarVolumeSchema>;
 
 // ==================== CUSTO ====================
 export const CriarCustoSchema = z.object({

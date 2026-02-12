@@ -4,7 +4,7 @@ import pool from '../database/connection';
 import { ApiResponse } from '../types';
 import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
-import { AtualizarFazendaSchema, CriarFazendaSchema } from '../utils/validators';
+import { AtualizarFazendaSchema, CriarFazendaSchema, IncrementarVolumeSchema } from '../utils/validators';
 
 const FAZENDA_FIELDS = [
   'fazenda',
@@ -25,7 +25,34 @@ const FAZENDA_FIELDS = [
 export class FazendaController {
   async listar(_req: Request, res: Response): Promise<void> {
     try {
-      const [rows] = await pool.execute('SELECT * FROM fazendas ORDER BY created_at DESC');
+      const [rows] = await pool.execute(`
+        SELECT 
+          f.*,
+          (SELECT COUNT(*) FROM fretes fr WHERE fr.fazenda_id = f.id) as total_fretes_realizados,
+          (SELECT COALESCE(SUM(c.valor), 0) FROM custos c
+           INNER JOIN fretes fr ON c.frete_id = fr.id
+           WHERE fr.fazenda_id = f.id) as total_custos_operacionais,
+          (f.faturamento_total - 
+           COALESCE((SELECT SUM(c.valor) FROM custos c 
+                     INNER JOIN fretes fr ON c.frete_id = fr.id 
+                     WHERE fr.fazenda_id = f.id), 0)
+          ) as lucro_liquido,
+          (SELECT id FROM fretes fr WHERE fr.fazenda_id = f.id 
+           ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_id,
+          (SELECT motorista_nome FROM fretes fr WHERE fr.fazenda_id = f.id 
+           ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_motorista,
+          (SELECT caminhao_placa FROM fretes fr WHERE fr.fazenda_id = f.id 
+           ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_placa,
+          (SELECT origem FROM fretes fr WHERE fr.fazenda_id = f.id 
+           ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_origem,
+          (SELECT destino FROM fretes fr WHERE fr.fazenda_id = f.id 
+           ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_destino,
+          (SELECT data_frete FROM fretes fr WHERE fr.fazenda_id = f.id 
+           ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_data
+        FROM fazendas f
+        ORDER BY f.created_at DESC
+      `);
+      
       res.json({
         success: true,
         message: 'Fazendas listadas com sucesso',
@@ -53,10 +80,66 @@ export class FazendaController {
         return;
       }
 
+      const fazenda = fazendas[0] as {
+        faturamento_total?: number | string | null;
+      } & Record<string, unknown>;
+
+      // Buscar dados agregados em paralelo
+      const [ultimoFreteRows, totalFretesRows, totalCustosRows] = await Promise.all([
+        // Último frete desta fazenda
+        pool.execute(
+          `SELECT id, motorista_nome, caminhao_placa, origem, destino, data_frete
+           FROM fretes
+           WHERE fazenda_id = ?
+           ORDER BY data_frete DESC, created_at DESC
+           LIMIT 1`,
+          [id]
+        ),
+        // Total de fretes realizados
+        pool.execute('SELECT COUNT(*) AS total FROM fretes WHERE fazenda_id = ?', [id]),
+        // Total de custos operacionais (soma dos custos vinculados aos fretes dessa fazenda)
+        pool.execute(
+          `SELECT COALESCE(SUM(c.valor), 0) AS total
+           FROM custos c
+           INNER JOIN fretes f ON c.frete_id = f.id
+           WHERE f.fazenda_id = ?`,
+          [id]
+        ),
+      ]);
+
+      const ultimoFrete = (ultimoFreteRows[0] as unknown[])[0] as
+        | {
+            id?: string;
+            motorista_nome?: string;
+            caminhao_placa?: string;
+            origem?: string;
+            destino?: string;
+            data_frete?: string;
+          }
+        | undefined;
+
+      const totalFretes = (totalFretesRows[0] as Array<{ total: number }>)[0]?.total ?? 0;
+      const totalCustosOperacionais =
+        (totalCustosRows[0] as Array<{ total: number | string }>)[0]?.total ?? 0;
+
+      const faturamentoTotal = Number(fazenda.faturamento_total || 0);
+      const custosOperacionais = Number(totalCustosOperacionais || 0);
+
       res.json({
         success: true,
         message: 'Fazenda carregada com sucesso',
-        data: fazendas[0],
+        data: {
+          ...fazenda,
+          total_fretes_realizados: totalFretes,
+          total_custos_operacionais: custosOperacionais,
+          lucro_liquido: faturamentoTotal - custosOperacionais,
+          ultimo_frete_id: ultimoFrete?.id || null,
+          ultimo_frete_motorista: ultimoFrete?.motorista_nome || null,
+          ultimo_frete_placa: ultimoFrete?.caminhao_placa || null,
+          ultimo_frete_origem: ultimoFrete?.origem || null,
+          ultimo_frete_destino: ultimoFrete?.destino || null,
+          ultimo_frete_data: ultimoFrete?.data_frete || null,
+        },
       } as ApiResponse<unknown>);
     } catch (error) {
       res.status(500).json({
@@ -189,6 +272,55 @@ export class FazendaController {
       res.status(500).json({
         success: false,
         message: 'Erro ao remover fazenda',
+      } as ApiResponse<null>);
+    }
+  }
+
+  async incrementarVolume(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const payload = IncrementarVolumeSchema.parse(req.body);
+
+      // Verificar se a fazenda existe
+      const [rows] = await pool.execute('SELECT * FROM fazendas WHERE id = ? LIMIT 1', [id]);
+      const fazendas = rows as unknown[];
+
+      if (fazendas.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Fazenda não encontrada',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Incrementar o volume transportado (total_toneladas)
+      await pool.execute(
+        'UPDATE fazendas SET total_toneladas = total_toneladas + ? WHERE id = ?',
+        [payload.toneladas, id]
+      );
+
+      // Buscar fazenda atualizada
+      const [updatedRows] = await pool.execute('SELECT * FROM fazendas WHERE id = ? LIMIT 1', [id]);
+      const fazendaAtualizada = (updatedRows as unknown[])[0];
+
+      res.json({
+        success: true,
+        message: 'Volume incrementado com sucesso',
+        data: fazendaAtualizada,
+      } as ApiResponse<unknown>);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        res.status(400).json({
+          success: false,
+          message: 'Dados inválidos',
+          error: error.errors.map((err) => err.message).join('; '),
+        } as ApiResponse<null>);
+        return;
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao incrementar volume',
       } as ApiResponse<null>);
     }
   }

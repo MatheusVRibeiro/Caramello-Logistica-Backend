@@ -25,6 +25,33 @@ const PAGAMENTO_FIELDS = [
 ];
 
 export class PagamentoController {
+  // Gerar próximo ID sequencial de pagamento (PAG-2026-001, PAG-2026-002...)
+  private async gerarProximoIdPagamento(): Promise<string> {
+    const anoAtual = new Date().getFullYear();
+    const prefixo = `PAG-${anoAtual}-`;
+
+    // Buscar o último pagamento do ano atual
+    const [rows] = await pool.execute(
+      `SELECT id FROM pagamentos WHERE id LIKE ? ORDER BY id DESC LIMIT 1`,
+      [`${prefixo}%`]
+    );
+
+    const pagamentos = rows as Array<{ id: string }>;
+
+    if (pagamentos.length === 0) {
+      // Primeiro pagamento do ano
+      return `${prefixo}001`;
+    }
+
+    // Extrair número sequencial do último ID (PAG-2026-001 -> 001)
+    const ultimoId = pagamentos[0].id;
+    const ultimoNumero = parseInt(ultimoId.split('-')[2], 10);
+    const proximoNumero = ultimoNumero + 1;
+
+    // Formatar com 3 dígitos (001, 002, ..., 999)
+    return `${prefixo}${proximoNumero.toString().padStart(3, '0')}`;
+  }
+
   async listar(_req: Request, res: Response): Promise<void> {
     try {
       const [rows] = await pool.execute('SELECT * FROM pagamentos ORDER BY created_at DESC');
@@ -71,7 +98,7 @@ export class PagamentoController {
   async criar(req: Request, res: Response): Promise<void> {
     try {
       const payload = CriarPagamentoSchema.parse(req.body);
-      const id = payload.id || generateId('PAG');
+      const id = payload.id || (await this.gerarProximoIdPagamento());
       const status = payload.status || 'pendente';
 
       await pool.execute(
@@ -192,6 +219,80 @@ export class PagamentoController {
       res.status(500).json({
         success: false,
         message: 'Erro ao remover pagamento',
+      } as ApiResponse<null>);
+    }
+  }
+
+  async uploadComprovante(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      // Verificar se o pagamento existe
+      const [pagamentos] = await pool.execute('SELECT * FROM pagamentos WHERE id = ? LIMIT 1', [
+        id,
+      ]);
+      const pagamentoArray = pagamentos as unknown[];
+
+      if (pagamentoArray.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Pagamento não encontrado',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Verificar se o arquivo foi enviado
+      if (!req.file) {
+        res.status(400).json({
+          success: false,
+          message: 'Nenhum arquivo foi enviado',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      const { filename, mimetype, size, originalname } = req.file;
+      const anexoId = generateId('ANX');
+      const fileUrl = `/uploads/${filename}`;
+
+      // Inserir na tabela anexos
+      await pool.execute(
+        `INSERT INTO anexos (
+          id, nome_original, nome_arquivo, url, tipo_mime, tamanho,
+          entidade_tipo, entidade_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [anexoId, originalname, filename, fileUrl, mimetype, size, 'pagamento', id]
+      );
+
+      // Atualizar pagamento com dados do comprovante
+      await pool.execute(
+        `UPDATE pagamentos SET 
+          comprovante_nome = ?,
+          comprovante_url = ?,
+          comprovante_data_upload = NOW()
+        WHERE id = ?`,
+        [originalname, fileUrl, id]
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Comprovante enviado com sucesso',
+        data: {
+          anexoId,
+          filename,
+          url: fileUrl,
+          originalname,
+        },
+      } as ApiResponse<{
+        anexoId: string;
+        filename: string;
+        url: string;
+        originalname: string;
+      }>);
+    } catch (error) {
+      console.error('Erro ao fazer upload do comprovante:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao fazer upload do comprovante',
       } as ApiResponse<null>);
     }
   }

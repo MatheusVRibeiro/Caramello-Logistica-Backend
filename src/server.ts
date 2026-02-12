@@ -2,6 +2,7 @@ import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import path from 'path';
 import { errorHandler } from './middlewares/errorHandler';
 
 // Importar rotas
@@ -20,7 +21,7 @@ import { AuthController } from './controllers';
 dotenv.config();
 
 const app: Express = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 // ==================== MIDDLEWARES ====================
 
@@ -36,16 +37,32 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
+      console.log('🌐 [CORS] Request from origin:', origin);
+      
       // Permitir requisições sem origin (mobile apps, Postman, etc)
-      if (!origin) return callback(null, true);
+      if (!origin) {
+        console.log('✅ [CORS] No origin - permitido');
+        return callback(null, true);
+      }
       
       if (allowedOrigins.includes(origin)) {
+        console.log('✅ [CORS] Origin permitida:', origin);
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        console.log('❌ [CORS] Origin bloqueada:', origin);
+        // Em desenvolvimento, permitir todas as origens localhost
+        if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168')) {
+          console.log('⚠️ [CORS] Permitindo localhost/rede local em dev:', origin);
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
       }
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Authorization'],
     optionsSuccessStatus: 200,
   })
 );
@@ -53,6 +70,9 @@ app.use(
 // Body Parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Servir arquivos estáticos (uploads)
+app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 // Logger
 app.use(morgan('combined'));
@@ -113,8 +133,9 @@ app.use(errorHandler);
 const startServer = async () => {
   try {
     // Iniciar servidor
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Servidor rodando em http://0.0.0.0:${PORT}`);
+      console.log(`🌐 Acessível em http://192.168.0.174:${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
     });
   } catch (error) {

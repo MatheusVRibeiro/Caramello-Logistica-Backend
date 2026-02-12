@@ -2,7 +2,6 @@ import { Response } from 'express';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse, AuthRequest } from '../types';
-import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
 import { AtualizarFreteSchema, CriarFreteSchema } from '../utils/validators';
 
@@ -29,15 +28,93 @@ const FRETE_FIELDS = [
 ];
 
 export class FreteController {
-  async listar(_req: AuthRequest, res: Response): Promise<void> {
+  // Gerar próximo ID sequencial de frete (FRT-2026-001, FRT-2026-002...)
+  private async gerarProximoIdFrete(): Promise<string> {
+    const anoAtual = new Date().getFullYear();
+    const prefixo = `FRT-${anoAtual}-`;
+
+    // Buscar o último frete do ano atual
+    const [rows] = await pool.execute(
+      `SELECT id FROM fretes WHERE id LIKE ? ORDER BY id DESC LIMIT 1`,
+      [`${prefixo}%`]
+    );
+
+    const fretes = rows as Array<{ id: string }>;
+
+    if (fretes.length === 0) {
+      // Primeiro frete do ano
+      return `${prefixo}001`;
+    }
+
+    // Extrair número sequencial do último ID (FRT-2026-001 -> 001)
+    const ultimoId = fretes[0].id;
+    const ultimoNumero = parseInt(ultimoId.split('-')[2], 10);
+    const proximoNumero = ultimoNumero + 1;
+
+    // Formatar com 3 dígitos (001, 002, ..., 999)
+    return `${prefixo}${proximoNumero.toString().padStart(3, '0')}`;
+  }
+
+  async listar(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const [rows] = await pool.execute('SELECT * FROM fretes ORDER BY created_at DESC');
+      // Query com JOINs para garantir dados atualizados
+      // Também usa os campos cache (motorista_nome, caminhao_placa) como fallback
+      let sql = `
+        SELECT 
+          f.*,
+          COALESCE(f.motorista_nome, m.nome) as motorista_nome,
+          COALESCE(f.caminhao_placa, fr.placa) as caminhao_placa,
+          m.tipo as motorista_tipo,
+          fr.modelo as caminhao_modelo
+        FROM fretes f
+        LEFT JOIN motoristas m ON m.id = f.motorista_id
+        LEFT JOIN Frota fr ON fr.id = f.caminhao_id
+      `;
+
+      const params: (string | Date)[] = [];
+
+      // Filtros opcionais por query params
+      const whereClauses: string[] = [];
+      
+      // Filtro por data inicial
+      if (req.query.data_inicio) {
+        whereClauses.push('f.data_frete >= ?');
+        params.push(req.query.data_inicio as string);
+      }
+      
+      // Filtro por data final
+      if (req.query.data_fim) {
+        whereClauses.push('f.data_frete <= ?');
+        params.push(req.query.data_fim as string);
+      }
+      
+      // Filtro por motorista
+      if (req.query.motorista_id) {
+        whereClauses.push('f.motorista_id = ?');
+        params.push(req.query.motorista_id as string);
+      }
+      
+      // Filtro por fazenda
+      if (req.query.fazenda_id) {
+        whereClauses.push('f.fazenda_id = ?');
+        params.push(req.query.fazenda_id as string);
+      }
+
+      if (whereClauses.length > 0) {
+        sql += ' WHERE ' + whereClauses.join(' AND ');
+      }
+
+      sql += ' ORDER BY f.data_frete DESC, f.created_at DESC';
+
+      const [rows] = await pool.execute(sql, params);
+      
       res.json({
         success: true,
         message: 'Fretes listados com sucesso',
         data: rows,
       } as ApiResponse<unknown>);
     } catch (error) {
+      console.error('❌ [FRETES] Erro ao listar:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao listar fretes',
@@ -48,7 +125,23 @@ export class FreteController {
   async obterPorId(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const [rows] = await pool.execute('SELECT * FROM fretes WHERE id = ? LIMIT 1', [id]);
+      
+      const [rows] = await pool.execute(`
+        SELECT 
+          f.*,
+          COALESCE(f.motorista_nome, m.nome) as motorista_nome,
+          COALESCE(f.caminhao_placa, fr.placa) as caminhao_placa,
+          m.tipo as motorista_tipo,
+          m.telefone as motorista_telefone,
+          fr.modelo as caminhao_modelo,
+          fr.tipo_veiculo as caminhao_tipo
+        FROM fretes f
+        LEFT JOIN motoristas m ON m.id = f.motorista_id
+        LEFT JOIN Frota fr ON fr.id = f.caminhao_id
+        WHERE f.id = ?
+        LIMIT 1
+      `, [id]);
+      
       const fretes = rows as unknown[];
 
       if (fretes.length === 0) {
@@ -65,6 +158,7 @@ export class FreteController {
         data: fretes[0],
       } as ApiResponse<unknown>);
     } catch (error) {
+      console.error('❌ [FRETES] Erro ao obter frete:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao obter frete',
@@ -75,14 +169,14 @@ export class FreteController {
   async criar(req: AuthRequest, res: Response): Promise<void> {
     try {
       const payload = CriarFreteSchema.parse(req.body);
-      const id = payload.id || generateId('FRETE');
+      const id = payload.id || (await this.gerarProximoIdFrete());
 
       const receita =
         payload.receita !== undefined
           ? payload.receita
           : Number(payload.toneladas) * Number(payload.valor_por_tonelada);
-      const custos = payload.custos !== undefined ? payload.custos : 0;
-      const resultado = payload.resultado !== undefined ? payload.resultado : Number(receita) - Number(custos);
+      const custos = 0;
+      const resultado = Number(receita) - Number(custos);
 
       const sql = `INSERT INTO fretes (
         id, origem, destino, motorista_id, motorista_nome, caminhao_id, caminhao_placa,
@@ -113,7 +207,47 @@ export class FreteController {
         payload.pagamento_id || null,
       ];
 
-      await pool.execute(sql, values);
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        if (payload.fazenda_id) {
+          const [fazendaRows] = await connection.execute(
+            'SELECT id FROM fazendas WHERE id = ? LIMIT 1',
+            [payload.fazenda_id]
+          );
+          const fazendas = fazendaRows as unknown[];
+          if (fazendas.length === 0) {
+            await connection.rollback();
+            res.status(404).json({
+              success: false,
+              message: 'Fazenda nao encontrada',
+            } as ApiResponse<null>);
+            return;
+          }
+        }
+
+        await connection.execute(sql, values);
+
+        if (payload.fazenda_id) {
+          await connection.execute(
+            `UPDATE fazendas
+             SET total_sacas_carregadas = total_sacas_carregadas + ?,
+                 total_toneladas = total_toneladas + ?,
+                 faturamento_total = faturamento_total + ?,
+                 ultimo_frete = ?
+             WHERE id = ?`,
+            [payload.quantidade_sacas, payload.toneladas, receita, payload.data_frete, payload.fazenda_id]
+          );
+        }
+
+        await connection.commit();
+      } catch (transactionError) {
+        await connection.rollback();
+        throw transactionError;
+      } finally {
+        connection.release();
+      }
 
       res.status(201).json({
         success: true,

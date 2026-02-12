@@ -78,6 +78,13 @@ export class MotoristaController {
   async criar(req: Request, res: Response): Promise<void> {
     try {
       const payload = CriarMotoristaSchema.parse(req.body);
+      
+      // Higienização automática: Remove formatação antes de salvar
+      const cpfLimpo = payload.cpf.replace(/\D/g, '');
+      const cnhLimpa = payload.cnh.replace(/\D/g, '');
+      const telefoneLimpo = payload.telefone.replace(/\D/g, '');
+      const chavePixLimpa = payload.chave_pix ? payload.chave_pix.replace(/\D/g, '') : null;
+      
       const id = payload.id || generateId('MOT');
       const status = payload.status || 'ativo';
       const tipoPagamento = payload.tipo_pagamento || 'pix';
@@ -92,11 +99,11 @@ export class MotoristaController {
         [
           id,
           payload.nome,
-          payload.cpf,
-          payload.telefone,
+          cpfLimpo,           // CPF sem formatação
+          telefoneLimpo,      // Telefone sem formatação
           payload.email,
           payload.endereco || null,
-          payload.cnh,
+          cnhLimpa,           // CNH sem formatação
           payload.cnh_validade,
           payload.cnh_categoria,
           status,
@@ -105,7 +112,7 @@ export class MotoristaController {
           payload.data_desligamento || null,
           tipoPagamento,
           payload.chave_pix_tipo || null,
-          payload.chave_pix || null,
+          chavePixLimpa,      // Chave PIX sem formatação
           payload.banco || null,
           payload.agencia || null,
           payload.conta || null,
@@ -125,15 +132,30 @@ export class MotoristaController {
       if (error instanceof ZodError) {
         res.status(400).json({
           success: false,
-          message: 'Dados invalidos',
+          message: 'Dados inválidos. Verifique os campos preenchidos.',
           error: error.errors.map((err) => err.message).join('; '),
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Erro de CPF duplicado
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+        const message = String(error).includes('cpf') 
+          ? 'Este CPF já está cadastrado no sistema.'
+          : String(error).includes('cnh')
+          ? 'Esta CNH já está cadastrada no sistema.'
+          : 'Dados duplicados. Verifique CPF ou CNH.';
+        
+        res.status(409).json({
+          success: false,
+          message,
         } as ApiResponse<null>);
         return;
       }
 
       res.status(500).json({
         success: false,
-        message: 'Erro ao criar motorista',
+        message: 'Erro ao criar motorista. Tente novamente.',
       } as ApiResponse<null>);
     }
   }

@@ -70,27 +70,61 @@ export class CustoController {
       const payload = CriarCustoSchema.parse(req.body);
       const id = payload.id || generateId('CUSTO');
 
-      await pool.execute(
-        `INSERT INTO custos (
-          id, frete_id, tipo, descricao, valor, data, comprovante,
-          observacoes, motorista, caminhao, rota, litros, tipo_combustivel
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        const [freteRows] = await connection.execute('SELECT id FROM fretes WHERE id = ? LIMIT 1', [
           payload.frete_id,
-          payload.tipo,
-          payload.descricao,
-          payload.valor,
-          payload.data,
-          payload.comprovante || false,
-          payload.observacoes || null,
-          payload.motorista || null,
-          payload.caminhao || null,
-          payload.rota || null,
-          payload.litros || null,
-          payload.tipo_combustivel || null,
-        ]
-      );
+        ]);
+        const fretes = freteRows as unknown[];
+
+        if (fretes.length === 0) {
+          await connection.rollback();
+          res.status(404).json({
+            success: false,
+            message: 'Frete nao encontrado',
+          } as ApiResponse<null>);
+          return;
+        }
+
+        await connection.execute(
+          `INSERT INTO custos (
+            id, frete_id, tipo, descricao, valor, data, comprovante,
+            observacoes, motorista, caminhao, rota, litros, tipo_combustivel
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            payload.frete_id,
+            payload.tipo,
+            payload.descricao,
+            payload.valor,
+            payload.data,
+            payload.comprovante || false,
+            payload.observacoes || null,
+            payload.motorista || null,
+            payload.caminhao || null,
+            payload.rota || null,
+            payload.litros || null,
+            payload.tipo_combustivel || null,
+          ]
+        );
+
+        await connection.execute(
+          `UPDATE fretes
+           SET custos = IFNULL(custos, 0) + ?,
+               resultado = IFNULL(receita, 0) - (IFNULL(custos, 0) + ?)
+           WHERE id = ?`,
+          [payload.valor, payload.valor, payload.frete_id]
+        );
+
+        await connection.commit();
+      } catch (transactionError) {
+        await connection.rollback();
+        throw transactionError;
+      } finally {
+        connection.release();
+      }
 
       res.status(201).json({
         success: true,

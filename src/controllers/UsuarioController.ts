@@ -80,6 +80,10 @@ export class UsuarioController {
         senhaHash = await bcrypt.hash(payload.senha, 10);
       }
 
+      // Higienização automática: Remove formatação antes de salvar
+      const cpfLimpo = payload.cpf ? payload.cpf.replace(/\D/g, '') : null;
+      const telefoneLimpo = payload.telefone ? payload.telefone.replace(/\D/g, '') : null;
+
       const id = payload.id || generateId('USR');
       const role = payload.role || 'operador';
       const ativo = payload.ativo !== undefined ? Boolean(payload.ativo) : true;
@@ -95,8 +99,8 @@ export class UsuarioController {
           senhaHash,
           role,
           ativo,
-          payload.telefone || null,
-          payload.cpf || null,
+          telefoneLimpo,  // Telefone sem formatação
+          cpfLimpo,       // CPF sem formatação
         ]
       );
 
@@ -109,15 +113,30 @@ export class UsuarioController {
       if (error instanceof ZodError) {
         res.status(400).json({
           success: false,
-          message: 'Dados invalidos',
+          message: 'Dados inválidos. Verifique os campos preenchidos.',
           error: error.errors.map((err) => err.message).join('; '),
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Erro de email duplicado
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+        const message = String(error).includes('email') 
+          ? 'Este e-mail já está cadastrado no sistema.'
+          : String(error).includes('cpf')
+          ? 'Este CPF já está cadastrado no sistema.'
+          : 'Dados duplicados. Verifique e-mail ou CPF.';
+        
+        res.status(409).json({
+          success: false,
+          message,
         } as ApiResponse<null>);
         return;
       }
 
       res.status(500).json({
         success: false,
-        message: 'Erro ao criar usuario',
+        message: 'Erro ao criar usuário. Tente novamente.',
       } as ApiResponse<null>);
     }
   }
