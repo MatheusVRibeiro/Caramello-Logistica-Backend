@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AtualizarLocalEntregaSchema = exports.CriarLocalEntregaSchema = exports.AtualizarNotaFiscalSchema = exports.CriarNotaFiscalSchema = exports.AtualizarPagamentoSchema = exports.CriarPagamentoSchema = exports.AtualizarCustoSchema = exports.CriarCustoSchema = exports.IncrementarVolumeSchema = exports.AtualizarFazendaSchema = exports.CriarFazendaSchema = exports.AtualizarFreteSchema = exports.CriarFreteSchema = exports.AtualizarCaminhaoSchema = exports.CriarCaminhaoSchema = exports.AtualizarMotoristaSchema = exports.CriarMotoristaSchema = exports.AtualizarUsuarioSchema = exports.CriarUsuarioAdminSchema = exports.CriarUsuarioSchema = exports.LoginSchema = exports.isCPFValido = exports.sanitizarTelefone = exports.sanitizarCNH = exports.sanitizarCPF = void 0;
+exports.AtualizarLocalEntregaSchema = exports.CriarLocalEntregaSchema = exports.AtualizarNotaFiscalSchema = exports.CriarNotaFiscalSchema = exports.AtualizarPagamentoSchema = exports.CriarPagamentoSchema = exports.AtualizarCustoSchema = exports.CriarCustoSchema = exports.IncrementarVolumeSchema = exports.AtualizarFazendaSchema = exports.CriarFazendaSchema = exports.AtualizarFreteSchema = exports.CriarFreteSchema = exports.AtualizarCaminhaoSchema = exports.CriarMotoristaSchemaWithVinculo = exports.CriarCaminhaoSchema = exports.AtualizarMotoristaSchemaWithVinculo = exports.AtualizarMotoristaSchema = exports.CriarMotoristaSchema = exports.AtualizarUsuarioSchema = exports.CriarUsuarioAdminSchema = exports.CriarUsuarioSchema = exports.LoginSchema = exports.isCPFValido = exports.sanitizarTelefone = exports.sanitizarCNH = exports.sanitizarCPF = void 0;
 const zod_1 = require("zod");
 // ==================== FUNÇÕES DE SANITIZAÇÃO ====================
 const sanitizarCPF = (cpf) => {
@@ -102,40 +102,52 @@ exports.AtualizarUsuarioSchema = zod_1.z
 exports.CriarMotoristaSchema = zod_1.z.object({
     id: zod_1.z.string().min(1).optional(),
     nome: zod_1.z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-    cpf: cpfSchema,
+    cpf: cpfSchema.optional().nullable(),
     telefone: zod_1.z.string().min(10, 'Telefone inválido'),
-    email: zod_1.z.string().email('Email inválido'),
-    endereco: zod_1.z.string().optional(),
-    cnh: zod_1.z.string().min(5, 'CNH inválida'),
-    cnh_validade: zod_1.z.string().min(1, 'CNH validade obrigatoria'),
-    cnh_categoria: zod_1.z.string().min(1, 'Categoria CNH obrigatoria'),
-    status: zod_1.z.enum(['ativo', 'inativo', 'ferias']).optional(),
-    tipo: zod_1.z.enum(['proprio', 'terceirizado']),
-    data_admissao: zod_1.z.string().min(1, 'Data de admissao obrigatoria'),
+    email: zod_1.z.string().email('Email inválido').optional().nullable(),
+    endereco: zod_1.z.string().optional().nullable(),
+    cnh: zod_1.z.string().min(5, 'CNH inválida').optional().nullable(),
+    cnh_validade: zod_1.z.string().min(1, 'CNH validade obrigatoria').optional().nullable(),
+    cnh_categoria: zod_1.z.string().min(1, 'Categoria CNH obrigatoria').optional().nullable(),
+    status: zod_1.z.enum(['ativo', 'inativo', 'ferias']),
+    tipo: zod_1.z.enum(['proprio', 'terceirizado', 'agregado']),
+    data_admissao: zod_1.z.string().min(1, 'Data de admissao obrigatoria').optional().nullable(),
     data_desligamento: zod_1.z.string().optional(),
-    tipo_pagamento: zod_1.z.enum(['pix', 'transferencia_bancaria']).optional(),
+    tipo_pagamento: zod_1.z.enum(['pix', 'transferencia_bancaria']),
     chave_pix_tipo: zod_1.z.enum(['cpf', 'email', 'telefone', 'aleatoria']).optional(),
-    chave_pix: zod_1.z.string().optional(),
-    banco: zod_1.z.string().optional(),
-    agencia: zod_1.z.string().optional(),
-    conta: zod_1.z.string().optional(),
-    tipo_conta: zod_1.z.enum(['corrente', 'poupanca']).optional(),
+    chave_pix: zod_1.z.string().optional().nullable(),
+    banco: zod_1.z.string().optional().nullable(),
+    agencia: zod_1.z.string().optional().nullable(),
+    conta: zod_1.z.string().optional().nullable(),
+    tipo_conta: zod_1.z.enum(['corrente', 'poupanca']).optional().nullable(),
     receita_gerada: zod_1.z.number().nonnegative().optional(),
     viagens_realizadas: zod_1.z.number().int().nonnegative().optional(),
     caminhao_atual: zod_1.z.string().optional(),
-    placa_temporaria: zod_1.z.string().regex(/^[A-Z]{3}-?\d{4}$/, 'Placa inválida').optional(),
+    rg: zod_1.z.string().optional().nullable(),
+    data_nascimento: zod_1.z.string().optional().nullable(),
+    veiculo_id: zod_1.z.string().optional().nullable(),
 });
 exports.AtualizarMotoristaSchema = exports.CriarMotoristaSchema.partial().refine((data) => Object.keys(data).length > 0, { message: 'Informe ao menos um campo para atualizar' });
+// Atualização condicional: se alterar tipo para terceirizado/agregado, exige veiculo_id
+exports.AtualizarMotoristaSchemaWithVinculo = exports.AtualizarMotoristaSchema.refine((data) => {
+    if (!('tipo' in data))
+        return true;
+    const tipo = data.tipo;
+    if (tipo === 'terceirizado' || tipo === 'agregado') {
+        return !!data.veiculo_id;
+    }
+    return true;
+}, { message: 'Veículo obrigatório quando tipo é terceirizado/agregado', path: ['veiculo_id'] });
 // ==================== CAMINHÃO ====================
 exports.CriarCaminhaoSchema = zod_1.z.object({
     id: zod_1.z.string().min(1).optional(),
-    placa: zod_1.z.string().regex(/^[A-Z]{3}-?\d{4}$/, 'Placa inválida'),
-    placa_carreta: zod_1.z.string().optional(),
+    placa: zod_1.z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa inválida'),
+    placa_carreta: zod_1.z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa da carreta invalida').optional().nullable(),
     modelo: zod_1.z.string().min(3, 'Modelo deve ter pelo menos 3 caracteres'),
-    ano_fabricacao: zod_1.z.number().int().positive(),
+    ano_fabricacao: zod_1.z.number().int().positive().optional().nullable(),
     status: zod_1.z.enum(['disponivel', 'em_viagem', 'manutencao']).optional(),
     motorista_fixo_id: zod_1.z.string().optional(),
-    capacidade_toneladas: zod_1.z.number().positive('Capacidade deve ser maior que 0'),
+    capacidade_toneladas: zod_1.z.number().positive('Capacidade deve ser maior que 0').optional().nullable(),
     km_atual: zod_1.z.number().int().nonnegative().optional(),
     tipo_combustivel: zod_1.z.enum(['DIESEL', 'S10', 'ARLA', 'OUTRO']).optional(),
     tipo_veiculo: zod_1.z.enum(['TRUCADO', 'TOCO', 'CARRETA', 'BITREM', 'RODOTREM']),
@@ -145,10 +157,27 @@ exports.CriarCaminhaoSchema = zod_1.z.object({
     registro_antt: zod_1.z.string().optional(),
     validade_seguro: zod_1.z.string().optional(),
     validade_licenciamento: zod_1.z.string().optional(),
-    proprietario_tipo: zod_1.z.enum(['PROPRIO', 'TERCEIRO', 'AGREGADO']).optional(),
+    proprietario_tipo: zod_1.z.enum(['PROPRIO', 'TERCEIRO', 'AGREGADO']),
     ultima_manutencao_data: zod_1.z.string().optional(),
     proxima_manutencao_km: zod_1.z.number().int().nonnegative().optional(),
 });
+// Regras adicionais para criação de motorista:
+// - Se tipo for 'terceirizado' ou 'agregado', então `veiculo_id` é obrigatório no payload de criação.
+exports.CriarMotoristaSchemaWithVinculo = exports.CriarMotoristaSchema.refine((data) => {
+    const needsVinculo = data.tipo === 'terceirizado' || data.tipo === 'agregado';
+    if (needsVinculo) {
+        return !!data.veiculo_id;
+    }
+    return true;
+}, { message: 'Veículo obrigatório para motoristas terceirizados/agregados', path: ['veiculo_id'] });
+// Validação condicional: se o tipo de veículo exige carreta, placa_carreta é obrigatória
+exports.CriarCaminhaoSchema.refine((data) => {
+    const carretaTypes = ['CARRETA', 'BITREM', 'RODOTREM'];
+    if (carretaTypes.includes(String(data.tipo_veiculo).toUpperCase())) {
+        return !!data.placa_carreta;
+    }
+    return true;
+}, { message: 'Placa da carreta obrigatoria para o tipo de veiculo selecionado', path: ['placa_carreta'] });
 exports.AtualizarCaminhaoSchema = exports.CriarCaminhaoSchema.partial().refine((data) => Object.keys(data).length > 0, { message: 'Informe ao menos um campo para atualizar' });
 // ==================== FRETE ====================
 exports.CriarFreteSchema = zod_1.z.object({
@@ -159,6 +188,7 @@ exports.CriarFreteSchema = zod_1.z.object({
     motorista_nome: zod_1.z.string().min(3),
     caminhao_id: zod_1.z.string().min(1),
     caminhao_placa: zod_1.z.string().min(5),
+    ticket: zod_1.z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
     fazenda_id: zod_1.z.string().optional(),
     fazenda_nome: zod_1.z.string().optional(),
     mercadoria: zod_1.z.string().min(1),
@@ -181,6 +211,7 @@ exports.AtualizarFreteSchema = zod_1.z
     motorista_nome: zod_1.z.string().min(3).optional(),
     caminhao_id: zod_1.z.string().min(1).optional(),
     caminhao_placa: zod_1.z.string().min(5).optional(),
+    ticket: zod_1.z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
     fazenda_id: zod_1.z.string().optional(),
     fazenda_nome: zod_1.z.string().optional(),
     mercadoria: zod_1.z.string().min(1).optional(),

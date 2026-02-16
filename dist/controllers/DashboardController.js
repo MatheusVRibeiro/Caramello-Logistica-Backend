@@ -15,7 +15,7 @@ class DashboardController {
           COUNT(*) AS total_fretes
         FROM fretes`);
             const [motoristaRows] = await connection_1.default.execute("SELECT COUNT(*) AS motoristas_ativos FROM motoristas WHERE status = 'ativo'");
-            const [frotaRows] = await connection_1.default.execute("SELECT COUNT(*) AS caminhoes_disponiveis FROM Frota WHERE status = 'disponivel'");
+            const [frotaRows] = await connection_1.default.execute("SELECT COUNT(*) AS caminhoes_disponiveis FROM frota WHERE status = 'disponivel'");
             const frete = freteRows[0];
             const motoristas = motoristaRows[0];
             const frota = frotaRows[0];
