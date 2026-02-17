@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
 import { AtualizarCaminhaoSchema, CriarCaminhaoSchema } from '../utils/validators';
 import { normalizeCaminhaoPayload } from '../utils/normalizeCaminhaoPayload';
@@ -95,21 +94,22 @@ export class FrotaController {
         } as ApiResponse<null>);
         return;
       }
-      const id = payload.id || generateId('FROTA');
       const status = payload.status || 'disponivel';
       const tipoCombustivel = payload.tipo_combustivel || 'S10';
       const kmAtual = payload.km_atual ?? null;
       const proprietarioTipo = payload.proprietario_tipo || 'PROPRIO';
 
-      await pool.execute(
-        `INSERT INTO frota (
-          id, placa, placa_carreta, modelo, ano_fabricacao, status, motorista_fixo_id,
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        // 1. INSERT sem ID manual
+        const insertSql = `INSERT INTO frota (
+          placa, placa_carreta, modelo, ano_fabricacao, status, motorista_fixo_id,
           capacidade_toneladas, km_atual, tipo_combustivel, tipo_veiculo, renavam,
           renavam_carreta, chassi, registro_antt, validade_seguro, validade_licenciamento,
           proprietario_tipo, ultima_manutencao_data, proxima_manutencao_km
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const insertParams = [
           payload.placa,
           payload.placa_carreta ?? null,
           payload.modelo,
@@ -129,20 +129,33 @@ export class FrotaController {
           proprietarioTipo,
           payload.ultima_manutencao_data || null,
           payload.proxima_manutencao_km || null,
-        ]
-      );
+        ];
+        const [result]: any = await conn.execute(insertSql, insertParams);
+        const insertId = result.insertId;
 
-      // Se veiculo estiver associado a um motorista, atualizamos relacionamento
-      // nota: estratégia antiga de 'placa_temporaria' foi removida
-      if (payload.motorista_fixo_id) {
-        // Não é necessário limpar campo de placa temporária (removido do schema)
+        // 2. Geração da sigla/código
+        const ano = new Date().getFullYear();
+        const codigo = `FROTA-${ano}-${String(insertId).padStart(3, '0')}`;
+        await conn.execute('UPDATE frota SET id = ? WHERE id = ?', [codigo, insertId]);
+
+        await conn.commit();
+
+        res.status(201).json({
+          success: true,
+          message: 'Veiculo criado com sucesso',
+          data: { id: codigo },
+        } as ApiResponse<{ id: string }>);
+        return;
+      } catch (txError) {
+        await conn.rollback();
+        res.status(500).json({
+          success: false,
+          message: 'Erro ao criar veiculo (transação).',
+        } as ApiResponse<null>);
+        return;
+      } finally {
+        conn.release();
       }
-
-      res.status(201).json({
-        success: true,
-        message: 'Veiculo criado com sucesso',
-        data: { id },
-      } as ApiResponse<{ id: string }>);
     } catch (error) {
       if (error instanceof ZodError) {
         res.status(400).json({

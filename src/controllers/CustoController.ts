@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
 import { AtualizarCustoSchema, CriarCustoSchema } from '../utils/validators';
 
@@ -68,7 +67,7 @@ export class CustoController {
   async criar(req: Request, res: Response): Promise<void> {
     try {
       const payload = CriarCustoSchema.parse(req.body);
-      const id = payload.id || generateId('CUSTO');
+      // ID será gerado pelo MySQL, ajuste a lógica conforme padrão dos outros controllers
 
       const connection = await pool.getConnection();
       try {

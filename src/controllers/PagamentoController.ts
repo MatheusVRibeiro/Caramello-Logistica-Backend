@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
 import { AtualizarPagamentoSchema, CriarPagamentoSchema } from '../utils/validators';
 
@@ -251,43 +250,66 @@ export class PagamentoController {
       }
 
       const { filename, mimetype, size, originalname } = req.file;
-      const anexoId = generateId('ANX');
+      // anexoId deve ser gerado pelo banco ou outro mecanismo
       const fileUrl = `/uploads/${filename}`;
 
-      // Inserir na tabela anexos
-      await pool.execute(
-        `INSERT INTO anexos (
-          id, nome_original, nome_arquivo, url, tipo_mime, tamanho,
-          entidade_tipo, entidade_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [anexoId, originalname, filename, fileUrl, mimetype, size, 'pagamento', id]
-      );
+      // Usar transação para garantir atomicidade
+      const conn = await pool.getConnection();
+      let anexoId: string = '';
+      try {
+        await conn.beginTransaction();
+        // 1. INSERT sem ID manual
+        const [result]: any = await conn.execute(
+          `INSERT INTO anexos (
+            nome_original, nome_arquivo, url, tipo_mime, tamanho,
+            entidade_tipo, entidade_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [originalname, filename, fileUrl, mimetype, size, 'pagamento', id]
+        );
+        const insertId = result.insertId;
+        // 2. Geração da sigla/código
+        const ano = new Date().getFullYear();
+        anexoId = `ANX-${ano}-${String(insertId).padStart(3, '0')}`;
+        await conn.execute('UPDATE anexos SET id = ? WHERE id = ?', [anexoId, insertId]);
 
-      // Atualizar pagamento com dados do comprovante
-      await pool.execute(
-        `UPDATE pagamentos SET 
-          comprovante_nome = ?,
-          comprovante_url = ?,
-          comprovante_data_upload = NOW()
-        WHERE id = ?`,
-        [originalname, fileUrl, id]
-      );
+        // Atualizar pagamento com dados do comprovante
+        await conn.execute(
+          `UPDATE pagamentos SET 
+            comprovante_nome = ?,
+            comprovante_url = ?,
+            comprovante_data_upload = NOW()
+          WHERE id = ?`,
+          [originalname, fileUrl, id]
+        );
 
-      res.status(200).json({
-        success: true,
-        message: 'Comprovante enviado com sucesso',
-        data: {
-          anexoId,
-          filename,
-          url: fileUrl,
-          originalname,
-        },
-      } as ApiResponse<{
-        anexoId: string;
-        filename: string;
-        url: string;
-        originalname: string;
-      }>);
+        await conn.commit();
+
+        res.status(200).json({
+          success: true,
+          message: 'Comprovante enviado com sucesso',
+          data: {
+            anexoId,
+            filename,
+            url: fileUrl,
+            originalname,
+          },
+        } as ApiResponse<{
+          anexoId: string;
+          filename: string;
+          url: string;
+          originalname: string;
+        }>);
+        return;
+      } catch (txError) {
+        await conn.rollback();
+        res.status(500).json({
+          success: false,
+          message: 'Erro ao salvar comprovante (transação).',
+        } as ApiResponse<null>);
+        return;
+      } finally {
+        conn.release();
+      }
     } catch (error) {
       console.error('Erro ao fazer upload do comprovante:', error);
       res.status(500).json({

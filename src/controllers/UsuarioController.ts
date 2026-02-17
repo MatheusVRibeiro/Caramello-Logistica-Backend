@@ -3,7 +3,6 @@ import bcrypt from 'bcryptjs';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
 import { AtualizarUsuarioSchema, CriarUsuarioAdminSchema } from '../utils/validators';
 
@@ -84,31 +83,51 @@ export class UsuarioController {
       const cpfLimpo = payload.cpf ? payload.cpf.replace(/\D/g, '') : null;
       const telefoneLimpo = payload.telefone ? payload.telefone.replace(/\D/g, '') : null;
 
-      const id = payload.id || generateId('USR');
       const role = payload.role || 'operador';
       const ativo = payload.ativo !== undefined ? Boolean(payload.ativo) : true;
 
-      await pool.execute(
-        `INSERT INTO usuarios (
-          id, nome, email, senha_hash, role, ativo, telefone, cpf
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        // 1. INSERT sem ID manual
+        const insertSql = `INSERT INTO usuarios (
+          nome, email, senha_hash, role, ativo, telefone, cpf
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        const insertParams = [
           payload.nome,
           payload.email,
           senhaHash,
           role,
           ativo,
-          telefoneLimpo,  // Telefone sem formatação
-          cpfLimpo,       // CPF sem formatação
-        ]
-      );
+          telefoneLimpo,
+          cpfLimpo
+        ];
+        const [result]: any = await conn.execute(insertSql, insertParams);
+        const insertId = result.insertId;
 
-      res.status(201).json({
-        success: true,
-        message: 'Usuario criado com sucesso',
-        data: { id },
-      } as ApiResponse<{ id: string }>);
+        // 2. Geração da sigla/código
+        const ano = new Date().getFullYear();
+        const codigo = `USR-${ano}-${String(insertId).padStart(3, '0')}`;
+        await conn.execute('UPDATE usuarios SET id = ? WHERE id = ?', [codigo, insertId]);
+
+        await conn.commit();
+
+        res.status(201).json({
+          success: true,
+          message: 'Usuario criado com sucesso',
+          data: { id: codigo },
+        } as ApiResponse<{ id: string }>);
+        return;
+      } catch (txError) {
+        await conn.rollback();
+        res.status(500).json({
+          success: false,
+          message: 'Erro ao criar usuário (transação).',
+        } as ApiResponse<null>);
+        return;
+      } finally {
+        conn.release();
+      }
     } catch (error) {
       if (error instanceof ZodError) {
         res.status(400).json({

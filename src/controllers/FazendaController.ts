@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
 import { AtualizarFazendaSchema, CriarFazendaSchema, IncrementarVolumeSchema } from '../utils/validators';
 
@@ -152,18 +151,19 @@ export class FazendaController {
   async criar(req: Request, res: Response): Promise<void> {
     try {
       const payload = CriarFazendaSchema.parse(req.body);
-      const id = payload.id || generateId('FAZ');
       const pesoMedioSaca = payload.peso_medio_saca !== undefined ? payload.peso_medio_saca : 25.0;
       const colheitaFinalizada = payload.colheita_finalizada !== undefined ? payload.colheita_finalizada : false;
 
-      await pool.execute(
-        `INSERT INTO fazendas (
-          id, fazenda, localizacao, proprietario, mercadoria, variedade, safra,
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        // 1. INSERT sem ID manual
+        const insertSql = `INSERT INTO fazendas (
+          fazenda, localizacao, proprietario, mercadoria, variedade, safra,
           preco_por_tonelada, peso_medio_saca, total_sacas_carregadas, total_toneladas,
           faturamento_total, ultimo_frete, colheita_finalizada
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const insertParams = [
           payload.fazenda,
           payload.localizacao,
           payload.proprietario,
@@ -177,14 +177,33 @@ export class FazendaController {
           payload.faturamento_total || 0,
           payload.ultimo_frete || null,
           colheitaFinalizada,
-        ]
-      );
+        ];
+        const [result]: any = await conn.execute(insertSql, insertParams);
+        const insertId = result.insertId;
 
-      res.status(201).json({
-        success: true,
-        message: 'Fazenda criada com sucesso',
-        data: { id },
-      } as ApiResponse<{ id: string }>);
+        // 2. Geração da sigla/código
+        const ano = new Date().getFullYear();
+        const codigo = `FAZ-${ano}-${String(insertId).padStart(3, '0')}`;
+        await conn.execute('UPDATE fazendas SET id = ? WHERE id = ?', [codigo, insertId]);
+
+        await conn.commit();
+
+        res.status(201).json({
+          success: true,
+          message: 'Fazenda criada com sucesso',
+          data: { id: codigo },
+        } as ApiResponse<{ id: string }>);
+        return;
+      } catch (txError) {
+        await conn.rollback();
+        res.status(500).json({
+          success: false,
+          message: 'Erro ao criar fazenda (transação).',
+        } as ApiResponse<null>);
+        return;
+      } finally {
+        conn.release();
+      }
     } catch (error) {
       if (error instanceof ZodError) {
         res.status(400).json({
