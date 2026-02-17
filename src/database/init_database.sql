@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   role ENUM('admin', 'contabilidade', 'operador') NOT NULL DEFAULT 'operador' COMMENT 'Nível de acesso do usuário',
   ativo BOOLEAN NOT NULL DEFAULT TRUE COMMENT 'Indica se o usuário está ativo no sistema',
   telefone VARCHAR(20) COMMENT 'Telefone de contato',
-  cpf VARCHAR(14) UNIQUE COMMENT 'CPF do usuário (opcional)',
+  documento VARCHAR(20) UNIQUE COMMENT 'Documento do usuário (CPF ou CNPJ) (opcional)',
   ultimo_acesso TIMESTAMP NULL COMMENT 'Data/hora do último login',
   tentativas_login_falhas INT DEFAULT 0 COMMENT 'Contador de tentativas de login falhas',
   bloqueado_ate TIMESTAMP NULL COMMENT 'Data/hora até quando o usuário está bloqueado',
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
 CREATE TABLE IF NOT EXISTS motoristas (
   id VARCHAR(255) PRIMARY KEY COMMENT 'ID único do motorista',
   nome VARCHAR(200) NOT NULL COMMENT 'Nome completo do motorista',
-  cpf VARCHAR(14) NOT NULL UNIQUE COMMENT 'CPF do motorista',
+  documento VARCHAR(20) NOT NULL UNIQUE COMMENT 'Documento do motorista (CPF ou CNPJ)',
   telefone VARCHAR(20) NOT NULL COMMENT 'Telefone principal',
   email VARCHAR(255) NOT NULL COMMENT 'Email de contato',
   endereco TEXT COMMENT 'Endereço completo',
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS motoristas (
   data_admissao DATE NOT NULL,
   data_desligamento DATE,
   tipo_pagamento ENUM('pix', 'transferencia_bancaria') DEFAULT 'pix',
-  chave_pix_tipo ENUM('cpf', 'email', 'telefone', 'aleatoria') NULL,
+  chave_pix_tipo ENUM('cpf', 'cnpj', 'email', 'telefone', 'aleatoria') NULL,
   chave_pix VARCHAR(255) NULL,
   banco VARCHAR(100) NULL,
   agencia VARCHAR(10) NULL,
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS motoristas (
   caminhao_atual VARCHAR(255) COMMENT 'Placa do caminhão atual (referência)',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_cpf (cpf),
+  INDEX idx_documento (documento),
   INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -211,7 +211,7 @@ INSERT INTO usuarios (id, nome, email, senha_hash, role) VALUES
 ('u4', 'Suporte Sistema', 'suporte@tech.com', 'hash_senha_4', 'operador');
 
 -- 2. MOTORISTAS
-INSERT INTO motoristas (id, nome, cpf, telefone, email, cnh, cnh_validade, cnh_categoria, tipo, data_admissao) VALUES
+INSERT INTO motoristas (id, nome, documento, telefone, email, cnh, cnh_validade, cnh_categoria, tipo, data_admissao) VALUES
 ('m1', 'Carlos Silva', '123.456.789-01', '(14) 99123-4567', 'carlos@gmail.com', '123456789', '2028-12-31', 'E', 'proprio', '2024-01-10'),
 ('m2', 'Pedro Oliveira', '234.567.890-12', '(14) 99234-5678', 'pedro.driver@gmail.com', '987654321', '2027-05-15', 'E', 'proprio', '2024-02-15'),
 ('m3', 'João Santos', '345.678.901-23', '(18) 99345-6789', 'joao.transp@outlook.com', '456123789', '2026-08-20', 'D', 'terceirizado', '2024-03-01'),

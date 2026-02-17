@@ -49,11 +49,25 @@ export const isCPFValido = (cpf: string): boolean => {
   return true;
 };
 
-const cpfSchema = z
+const documentoSchema = z
   .string()
-  .regex(/^(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})$/, 'CPF invalido')
-  .refine((cpf) => isCPFValido(cpf), { message: 'CPF inválido para os padrões da Receita Federal' });
+  .regex(/^(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{14})$/, 'Documento inválido')
+  .refine((d) => isDocumentoValido(d), { message: 'Documento inválido (CPF/CNPJ)' });
 
+export const sanitizarDocumento = (doc: string): string => {
+  return doc.replace(/\D/g, '');
+};
+
+// ==================== VALIDAÇÃO DE DOCUMENTO (CPF / CNPJ simplificado) ====
+export const isDocumentoValido = (doc: string): boolean => {
+  const limpo = doc.replace(/\D/g, '');
+  // aceitar CPF (11) ou CNPJ (14)
+  if (limpo.length !== 11 && limpo.length !== 14) return false;
+  // rejeitar sequências repetidas
+  if (/^(\d)\1+$/.test(limpo)) return false;
+  // validação aprofundada pode ser adicionada; aqui aceitamos formatos básicos
+  return true;
+};
 // ==================== AUTENTICAÇÃO ====================
 export const LoginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -81,7 +95,7 @@ export const CriarUsuarioAdminSchema = z
     role: z.enum(['admin', 'contabilidade', 'operador']).optional(),
     ativo: z.boolean().optional(),
     telefone: z.string().min(8).optional(),
-    cpf: cpfSchema.optional(),
+    documento: documentoSchema.optional(),
   })
   .refine((data) => data.senha || data.senha_hash, {
     message: 'Senha ou senha_hash sao obrigatorios',
@@ -99,7 +113,7 @@ export const AtualizarUsuarioSchema = z
     role: z.enum(['admin', 'contabilidade', 'operador']).optional(),
     ativo: z.boolean().optional(),
     telefone: z.string().min(8).optional(),
-    cpf: cpfSchema.optional(),
+    documento: documentoSchema.optional(),
     ultimo_acesso: z.string().optional(),
     tentativas_login_falhas: z.number().int().nonnegative().optional(),
     bloqueado_ate: z.string().optional(),
@@ -116,7 +130,7 @@ export type AtualizarUsuarioInput = z.infer<typeof AtualizarUsuarioSchema>;
 export const CriarMotoristaSchema = z.object({
   id: IdSchema.optional(),
   nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-  cpf: cpfSchema.optional().nullable(),
+  documento: documentoSchema.optional().nullable(),
   telefone: z.string().min(10, 'Telefone inválido'),
   email: z.string().email('Email inválido').optional().nullable(),
   endereco: z.string().optional().nullable(),

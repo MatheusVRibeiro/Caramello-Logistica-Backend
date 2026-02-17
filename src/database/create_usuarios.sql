@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   role ENUM('admin', 'contabilidade', 'operador') NOT NULL DEFAULT 'operador' COMMENT 'Nível de acesso',
   ativo BOOLEAN NOT NULL DEFAULT TRUE COMMENT 'Status do usuário',
   telefone VARCHAR(20),
-  cpf VARCHAR(14) UNIQUE,
+  documento VARCHAR(20) UNIQUE,
   ultimo_acesso TIMESTAMP NULL,
   tentativas_login_falhas INT DEFAULT 0,
   bloqueado_ate TIMESTAMP NULL,

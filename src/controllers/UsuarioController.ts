@@ -4,7 +4,7 @@ import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
 import { buildUpdate } from '../utils/sql';
-import { AtualizarUsuarioSchema, CriarUsuarioAdminSchema } from '../utils/validators';
+import { AtualizarUsuarioSchema, CriarUsuarioAdminSchema, sanitizarDocumento } from '../utils/validators';
 
 const USUARIO_FIELDS = [
   'nome',
@@ -13,7 +13,7 @@ const USUARIO_FIELDS = [
   'role',
   'ativo',
   'telefone',
-  'cpf',
+  'documento',
   'ultimo_acesso',
   'tentativas_login_falhas',
   'bloqueado_ate',
@@ -25,7 +25,7 @@ export class UsuarioController {
   async listar(_req: Request, res: Response): Promise<void> {
     try {
       const [rows] = await pool.execute(
-        'SELECT id, nome, email, role, ativo, telefone, cpf, created_at, updated_at FROM usuarios ORDER BY created_at DESC'
+        'SELECT id, nome, email, role, ativo, telefone, documento, created_at, updated_at FROM usuarios ORDER BY created_at DESC'
       );
       res.json({
         success: true,
@@ -44,7 +44,7 @@ export class UsuarioController {
     try {
       const { id } = req.params;
       const [rows] = await pool.execute(
-        'SELECT id, nome, email, role, ativo, telefone, cpf, created_at, updated_at FROM usuarios WHERE id = ? LIMIT 1',
+        'SELECT id, nome, email, role, ativo, telefone, documento, created_at, updated_at FROM usuarios WHERE id = ? LIMIT 1',
         [id]
       );
 
@@ -80,7 +80,7 @@ export class UsuarioController {
       }
 
       // Higienização automática: Remove formatação antes de salvar
-      const cpfLimpo = payload.cpf ? payload.cpf.replace(/\D/g, '') : null;
+      const documentoLimpo = payload.documento ? sanitizarDocumento(String(payload.documento)) : null;
       const telefoneLimpo = payload.telefone ? payload.telefone.replace(/\D/g, '') : null;
 
       const role = payload.role || 'operador';
@@ -91,7 +91,7 @@ export class UsuarioController {
         await conn.beginTransaction();
         // 1. INSERT sem ID manual
         const insertSql = `INSERT INTO usuarios (
-          nome, email, senha_hash, role, ativo, telefone, cpf
+          nome, email, senha_hash, role, ativo, telefone, documento
         ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
         const insertParams = [
           payload.nome,
@@ -100,7 +100,7 @@ export class UsuarioController {
           role,
           ativo,
           telefoneLimpo,
-          cpfLimpo
+          documentoLimpo
         ];
         const [result]: any = await conn.execute(insertSql, insertParams);
         const insertId = result.insertId;
@@ -142,9 +142,9 @@ export class UsuarioController {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'ER_DUP_ENTRY') {
         const message = String(error).includes('email') 
           ? 'Este e-mail já está cadastrado no sistema.'
-          : String(error).includes('cpf')
-          ? 'Este CPF já está cadastrado no sistema.'
-          : 'Dados duplicados. Verifique e-mail ou CPF.';
+          : String(error).includes('cpf') || String(error).includes('documento')
+          ? 'Este documento já está cadastrado no sistema.'
+          : 'Dados duplicados. Verifique e-mail ou documento.';
         
         res.status(409).json({
           success: false,

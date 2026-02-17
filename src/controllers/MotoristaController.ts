@@ -3,12 +3,12 @@ import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
 import { buildUpdate } from '../utils/sql';
-import { AtualizarMotoristaSchemaWithVinculo } from '../utils/validators';
+import { AtualizarMotoristaSchemaWithVinculo, sanitizarDocumento } from '../utils/validators';
 
 const MOTORISTA_FIELDS = [
   'id',
   'nome',
-  'cpf',
+  'documento',
   'telefone',
   'email',
   'endereco',
@@ -83,19 +83,20 @@ class _MotoristaController {
       // 1. INSERT sem o campo codigo_motorista
       // Certifique-se de que a coluna codigo_motorista no MySQL permite NULL
       const {
-        nome, cpf, telefone, email, endereco, status, tipo,
+        nome, documento, telefone, email, endereco, status, tipo,
         tipo_pagamento, chave_pix_tipo, chave_pix,
         banco, agencia, conta, tipo_conta
       } = req.body;
+      const documentoLimpo = documento ? sanitizarDocumento(String(documento)) : null;
       const insertSql = `INSERT INTO motoristas (
-        nome, cpf, telefone, email, endereco,
+        nome, documento, telefone, email, endereco,
         status, tipo, tipo_pagamento, chave_pix_tipo, chave_pix,
         banco, agencia, conta, tipo_conta, receita_gerada, viagens_realizadas
       ) VALUES (${new Array(16).fill('?').join(',')})`;
       const insertParams = [
-        nome,
-        cpf ?? null,
-        telefone,
+      nome,
+      documentoLimpo,
+      telefone,
         email ?? null,
         endereco ?? null,
         status || 'ativo',

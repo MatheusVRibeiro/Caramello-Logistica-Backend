@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS motoristas (
   -- Permitido NULL para evitar erro ER_DUP_ENTRY no primeiro INSERT da transação
   codigo_motorista VARCHAR(20) UNIQUE NULL COMMENT 'ID de negócio (Ex: MOT-2026-001)',
   nome VARCHAR(200) NOT NULL COMMENT 'Nome completo do motorista - OBRIGATÓRIO',
-  cpf VARCHAR(14) UNIQUE COMMENT 'CPF do motorista',
+  documento VARCHAR(20) UNIQUE COMMENT 'Documento do motorista (CPF ou CNPJ)',
   telefone VARCHAR(20) NOT NULL COMMENT 'Telefone principal - OBRIGATÓRIO',
   email VARCHAR(255),
   endereco TEXT,
@@ -25,14 +25,14 @@ CREATE TABLE IF NOT EXISTS motoristas (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_status (status),
   INDEX idx_tipo (tipo),
-  INDEX idx_cpf (cpf)
+  INDEX idx_documento (documento)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
 -- Dados de Exemplo (adaptados ao novo esquema numérico)
 -- =============================================================================
 INSERT INTO motoristas (
-  codigo_motorista, nome, cpf, telefone, email, endereco, status, tipo,
+  codigo_motorista, nome, documento, telefone, email, endereco, status, tipo,
   tipo_pagamento, chave_pix_tipo, chave_pix, receita_gerada, viagens_realizadas, created_at
 ) VALUES
   (
@@ -53,4 +53,5 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   tipo = VALUES(tipo),
   tipo_pagamento = VALUES(tipo_pagamento),
-  chave_pix = VALUES(chave_pix);
+  chave_pix = VALUES(chave_pix),
+  documento = VALUES(documento);
