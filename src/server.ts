@@ -1,9 +1,14 @@
 import express, { Express, Request, Response } from 'express';
+import compression from 'compression';
 import cors from 'cors';
-import morgan from 'morgan';
+import { randomUUID } from 'crypto';
+import pino from 'pino';
+import pinoHttp from 'pino-http';
 import dotenv from 'dotenv';
 import path from 'path';
 import { errorHandler } from './middlewares/errorHandler';
+import pool from './database/connection';
+import { isCacheReady } from './utils/cache';
 
 // Importar rotas
 import authRoutes from './routes/authRoutes';
@@ -75,6 +80,14 @@ app.use(
   })
 );
 
+app.use((_req: Request, res: Response, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  next();
+});
+
 // Garantir resposta para preflight em todas as rotas
 app.options('*', cors({
   origin: (origin, callback) => {
@@ -88,14 +101,21 @@ app.options('*', cors({
 }));
 
 // Body Parser
+app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Servir arquivos estáticos (uploads)
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
-// Logger
-app.use(morgan('combined'));
+// Logger estruturado
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (_req: Request) => randomUUID(),
+  })
+);
 
 // ==================== ROTAS ====================
 
@@ -111,6 +131,57 @@ app.get('/health', (_req: Request, res: Response) => {
     message: 'Backend está funcionando',
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/health/full', async (_req: Request, res: Response) => {
+  const startedAt = Date.now();
+  try {
+    await pool.execute('SELECT 1');
+    res.json({
+      success: true,
+      message: 'Healthcheck completo ok',
+      data: {
+        uptime: process.uptime(),
+        db: 'ok',
+        cache: isCacheReady() ? 'ok' : 'disabled',
+        responseTimeMs: Date.now() - startedAt,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({
+      success: false,
+      message: 'Healthcheck completo com falha',
+      data: {
+        uptime: process.uptime(),
+        db: 'error',
+        cache: isCacheReady() ? 'ok' : 'disabled',
+        responseTimeMs: Date.now() - startedAt,
+      },
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.get('/health/db', async (_req: Request, res: Response) => {
+  try {
+    await pool.execute('SELECT 1');
+    res.json({
+      success: true,
+      message: 'Banco de dados conectado',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({
+      success: false,
+      message: 'Banco de dados indisponível',
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 // Rotas (sem /api prefix) — rotas simples e conveniência

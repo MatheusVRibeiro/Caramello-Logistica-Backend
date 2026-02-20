@@ -13,6 +13,7 @@ export interface ApiResponse<T> {
   message: string;
   data?: T;
   error?: string;
+  meta?: Record<string, unknown>;
 }
 
 // Frota (veiculo) - campos opcionais refletem possibilidade de NULL no banco
@@ -44,6 +45,7 @@ export interface Frota {
 // Frete - registro de transporte
 export interface Frete {
   id: string;
+  codigo_frete?: string | null;
   origem: string;
   destino: string;
   motorista_id: string;
@@ -51,6 +53,7 @@ export interface Frete {
   caminhao_id: string;
   caminhao_placa: string;
   ticket?: string | null;
+  numero_nota_fiscal?: string | null;
   fazenda_id?: string | null;
   fazenda_nome?: string | null;
   mercadoria: string;

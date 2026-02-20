@@ -1,10 +1,24 @@
 import { Response } from 'express';
 import pool from '../database/connection';
 import { ApiResponse, AuthRequest } from '../types';
+import { getCache, setCache } from '../utils/cache';
+
+const CACHE_TTL_SECONDS = Number(process.env.REDIS_TTL || 60);
 
 export class DashboardController {
   async obterKPIs(_req: AuthRequest, res: Response): Promise<void> {
     try {
+      const cacheKey = 'dashboard:kpis';
+      const cached = await getCache<Record<string, number>>(cacheKey);
+      if (cached) {
+        res.json({
+          success: true,
+          message: 'KPIs carregados com sucesso (cache)',
+          data: cached,
+        } as ApiResponse<Record<string, number>>);
+        return;
+      }
+
       const [freteRows] = await pool.execute(
         `SELECT 
           COALESCE(SUM(receita), 0) AS receita_total,
@@ -30,18 +44,22 @@ export class DashboardController {
         ? Number(((frete.lucro_total / frete.receita_total) * 100).toFixed(2))
         : 0;
 
+      const data = {
+        receitaTotal: frete.receita_total,
+        custosTotal: frete.custos_total,
+        lucroTotal: frete.lucro_total,
+        margemLucro,
+        totalFretes: frete.total_fretes,
+        motoristasAtivos: motoristas.motoristas_ativos,
+        caminhoesDisponiveis: frota.caminhoes_disponiveis,
+      };
+
+      await setCache(cacheKey, data, CACHE_TTL_SECONDS);
+
       res.json({
         success: true,
         message: 'KPIs carregados com sucesso',
-        data: {
-          receitaTotal: frete.receita_total,
-          custosTotal: frete.custos_total,
-          lucroTotal: frete.lucro_total,
-          margemLucro,
-          totalFretes: frete.total_fretes,
-          motoristasAtivos: motoristas.motoristas_ativos,
-          caminhoesDisponiveis: frota.caminhoes_disponiveis,
-        },
+        data,
       } as ApiResponse<Record<string, number>>);
     } catch (error) {
       res.status(500).json({
@@ -53,6 +71,17 @@ export class DashboardController {
 
   async obterEstatisticasPorRota(_req: AuthRequest, res: Response): Promise<void> {
     try {
+      const cacheKey = 'dashboard:estatisticas-rotas';
+      const cached = await getCache<unknown[]>(cacheKey);
+      if (cached) {
+        res.json({
+          success: true,
+          message: 'Estatisticas por rota carregadas com sucesso (cache)',
+          data: cached,
+        } as ApiResponse<unknown>);
+        return;
+      }
+
       const [rows] = await pool.execute(
         `SELECT 
           origem,
@@ -65,6 +94,8 @@ export class DashboardController {
         GROUP BY origem, destino
         ORDER BY lucro_total DESC`
       );
+
+      await setCache(cacheKey, rows, CACHE_TTL_SECONDS);
 
       res.json({
         success: true,

@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { buildUpdate } from '../utils/sql';
+import { buildUpdate, getPagination } from '../utils/sql';
 import { AtualizarFazendaSchema, CriarFazendaSchema, IncrementarVolumeSchema } from '../utils/validators';
+import { sendValidationError } from '../utils/validation';
 
 const FAZENDA_FIELDS = [
   'fazenda',
@@ -22,9 +22,11 @@ const FAZENDA_FIELDS = [
 ];
 
 export class FazendaController {
-  async listar(_req: Request, res: Response): Promise<void> {
+  async listar(req: Request, res: Response): Promise<void> {
     try {
-      const [rows] = await pool.execute(`
+      const { page, limit, offset } = getPagination(req.query as Record<string, unknown>);
+      const [rowsResult, countResult] = await Promise.all([
+        pool.execute(`
         SELECT 
           f.*,
           (SELECT COUNT(*) FROM fretes fr WHERE fr.fazenda_id = f.id) as total_fretes_realizados,
@@ -50,12 +52,19 @@ export class FazendaController {
            ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_data
         FROM fazendas f
         ORDER BY f.created_at DESC
-      `);
+        LIMIT ${limit} OFFSET ${offset}
+        `),
+        pool.execute('SELECT COUNT(*) as total FROM fazendas'),
+      ]);
+      const rows = rowsResult[0];
+      const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
       
       res.json({
         success: true,
         message: 'Fazendas listadas com sucesso',
         data: rows,
+        meta: { page, limit, total, totalPages },
       } as ApiResponse<unknown>);
     } catch (error) {
       res.status(500).json({
@@ -207,12 +216,7 @@ export class FazendaController {
         conn.release();
       }
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 
@@ -255,12 +259,7 @@ export class FazendaController {
         message: 'Fazenda atualizada com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 
@@ -341,12 +340,7 @@ export class FazendaController {
         data: fazendaAtualizada,
       } as ApiResponse<unknown>);
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados inválidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 

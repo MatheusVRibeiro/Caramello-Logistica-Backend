@@ -72,23 +72,23 @@ export const isDocumentoValido = (doc: string): boolean => {
 export const LoginSchema = z.object({
   email: z.string().email('Email inválido'),
   senha: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
-});
+}).strict();
 
 export type LoginInput = z.infer<typeof LoginSchema>;
 
 // ==================== USUÁRIO ====================
 export const CriarUsuarioSchema = z.object({
-  nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
+  nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres').transform((v) => v.toUpperCase()),
   email: z.string().email('Email inválido'),
   senha: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
-});
+}).strict();
 
 export type CriarUsuarioInput = z.infer<typeof CriarUsuarioSchema>;
 
 export const CriarUsuarioAdminSchema = z
   .object({
     id: IdSchema.optional(),
-    nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
+    nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres').transform((v) => v.toUpperCase()),
     email: z.string().email('Email inválido'),
     senha: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional(),
     senha_hash: z.string().min(10).optional(),
@@ -97,6 +97,7 @@ export const CriarUsuarioAdminSchema = z
     telefone: z.string().min(8).optional(),
     documento: documentoSchema.optional(),
   })
+  .strict()
   .refine((data) => data.senha || data.senha_hash, {
     message: 'Senha ou senha_hash sao obrigatorios',
     path: ['senha'],
@@ -106,7 +107,7 @@ export type CriarUsuarioAdminInput = z.infer<typeof CriarUsuarioAdminSchema>;
 
 export const AtualizarUsuarioSchema = z
   .object({
-    nome: z.string().min(3).optional(),
+    nome: z.string().min(3).optional().transform((v) => (v ? v.toUpperCase() : v)),
     email: z.string().email('Email inválido').optional(),
     senha: z.string().min(6).optional(),
     senha_hash: z.string().min(10).optional(),
@@ -120,6 +121,7 @@ export const AtualizarUsuarioSchema = z
     token_recuperacao: z.string().optional(),
     token_expiracao: z.string().optional(),
   })
+  .strict()
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Informe ao menos um campo para atualizar',
   });
@@ -129,7 +131,7 @@ export type AtualizarUsuarioInput = z.infer<typeof AtualizarUsuarioSchema>;
 // ==================== MOTORISTA ====================
 export const CriarMotoristaSchema = z.object({
   id: IdSchema.optional(),
-  nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
+  nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres').transform(v => v.toUpperCase()),
   documento: documentoSchema.optional().nullable(),
   telefone: z.string().min(10, 'Telefone inválido'),
   email: z.string().email('Email inválido').optional().nullable(),
@@ -154,7 +156,7 @@ export const CriarMotoristaSchema = z.object({
   rg: z.string().optional().nullable(),
   data_nascimento: z.string().optional().nullable(),
   veiculo_id: IdSchema.optional().nullable(),
-});
+}).strict();
 
 
 export type CriarMotoristaInput = z.infer<typeof CriarMotoristaSchema>;
@@ -181,9 +183,9 @@ export type AtualizarMotoristaWithVinculoInput = z.infer<typeof AtualizarMotoris
 // ==================== CAMINHÃO ====================
 export const CriarCaminhaoSchema = z.object({
   id: IdSchema.optional(),
-  placa: z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa inválida'),
-  placa_carreta: z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa da carreta invalida').optional().nullable(),
-  modelo: z.string().min(3, 'Modelo deve ter pelo menos 3 caracteres'),
+  placa: z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa inválida').transform(v => v.toUpperCase()),
+  placa_carreta: z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa da carreta invalida').optional().nullable().transform(v => v ? v.toUpperCase() : v),
+  modelo: z.string().min(3, 'Modelo deve ter pelo menos 3 caracteres').transform(v => v.toUpperCase()),
   ano_fabricacao: z.number().int().positive().optional().nullable(),
   status: z.enum(['disponivel', 'em_viagem', 'manutencao']).optional(),
   motorista_fixo_id: IdSchema.optional(),
@@ -200,7 +202,7 @@ export const CriarCaminhaoSchema = z.object({
   proprietario_tipo: z.enum(['PROPRIO', 'TERCEIRO', 'AGREGADO']).optional(),
   ultima_manutencao_data: z.string().optional(),
   proxima_manutencao_km: z.number().int().nonnegative().optional(),
-});
+}).strict();
 
 // Regras adicionais para criação de motorista:
 // - Se tipo for 'terceirizado' ou 'agregado', então `veiculo_id` é obrigatório no payload de criação.
@@ -231,21 +233,45 @@ export const AtualizarCaminhaoSchema = CriarCaminhaoSchema.partial().refine(
 export type AtualizarCaminhaoInput = z.infer<typeof AtualizarCaminhaoSchema>;
 
 // ==================== FRETE ====================
+const normalizeFreteDate = (value: string): string => {
+  const input = value.trim();
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
+  if (isoMatch) return input;
+
+  const brMatch = /^(\d{2})-(\d{2})-(\d{4})$/.exec(input);
+  if (brMatch) {
+    const [, day, month, year] = brMatch;
+    return `${year}-${month}-${day}`;
+  }
+
+  return input;
+};
+
+const DataFreteSchema = z
+  .string()
+  .transform(normalizeFreteDate)
+  .refine(
+    (value) => /^\d{4}-\d{2}-\d{2}$/.test(value),
+    'Data do frete deve estar no formato DD-MM-YYYY ou YYYY-MM-DD'
+  );
+
 export const CriarFreteSchema = z.object({
   id: IdSchema.optional(),
-  origem: z.string().min(3, 'Origem deve ter pelo menos 3 caracteres'),
-  destino: z.string().min(3, 'Destino deve ter pelo menos 3 caracteres'),
+  origem: z.string().min(3, 'Origem deve ter pelo menos 3 caracteres').transform(v => v.toUpperCase()),
+  destino: z.string().min(3, 'Destino deve ter pelo menos 3 caracteres').transform(v => v.toUpperCase()),
   motorista_id: IdSchema,
-  motorista_nome: z.string().min(3),
+  motorista_nome: z.string().min(3).transform(v => v.toUpperCase()),
   caminhao_id: IdSchema,
-  caminhao_placa: z.string().min(5),
+  caminhao_placa: z.string().min(5).transform(v => v.toUpperCase()),
   ticket: z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
+  numero_nota_fiscal: z.string().regex(/^[\d.]+$/, 'Nº da nota fiscal deve conter números e opcionalmente pontos').optional().nullable(),
   fazenda_id: IdSchema.optional(),
-  fazenda_nome: z.string().optional(),
-  mercadoria: z.string().min(1),
+  fazenda_nome: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+  mercadoria: z.string().min(1).transform(v => v.toUpperCase()),
   mercadoria_id: IdSchema.optional(),
-  variedade: z.string().optional(),
-  data_frete: z.string().min(1),
+  variedade: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+  data_frete: DataFreteSchema.optional(),
+  dataFrete: DataFreteSchema.optional(),
   quantidade_sacas: z.number().int().positive(),
   toneladas: z.number().positive(),
   valor_por_tonelada: z.number().positive(),
@@ -253,25 +279,36 @@ export const CriarFreteSchema = z.object({
   custos: z.number().nonnegative().optional(),
   resultado: z.number().optional(),
   pagamento_id: IdSchema.optional(),
-});
+})
+  .strict()
+  .refine((data) => !!(data.data_frete ?? data.dataFrete), {
+    message: 'Data do frete é obrigatória',
+    path: ['data_frete'],
+  })
+  .transform((data) => ({
+    ...data,
+    data_frete: data.data_frete ?? data.dataFrete,
+  }));
 
 export type CriarFreteInput = z.infer<typeof CriarFreteSchema>;
 
 export const AtualizarFreteSchema = z
   .object({
-    origem: z.string().min(3).optional(),
-    destino: z.string().min(3).optional(),
+    origem: z.string().min(3).optional().transform(v => v ? v.toUpperCase() : v),
+    destino: z.string().min(3).optional().transform(v => v ? v.toUpperCase() : v),
     motorista_id: IdSchema.optional(),
-    motorista_nome: z.string().min(3).optional(),
+    motorista_nome: z.string().min(3).optional().transform(v => v ? v.toUpperCase() : v),
     caminhao_id: IdSchema.optional(),
-    caminhao_placa: z.string().min(5).optional(),
+    caminhao_placa: z.string().min(5).optional().transform(v => v ? v.toUpperCase() : v),
     ticket: z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
+    numero_nota_fiscal: z.string().regex(/^[\d.]+$/, 'Nº da nota fiscal deve conter números e opcionalmente pontos').optional().nullable(),
     fazenda_id: IdSchema.optional(),
-    fazenda_nome: z.string().optional(),
-    mercadoria: z.string().min(1).optional(),
+    fazenda_nome: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+    mercadoria: z.string().min(1).optional().transform(v => v ? v.toUpperCase() : v),
     mercadoria_id: IdSchema.optional(),
-    variedade: z.string().optional(),
-    data_frete: z.string().min(1).optional(),
+    variedade: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+    data_frete: DataFreteSchema.optional(),
+    dataFrete: DataFreteSchema.optional(),
     quantidade_sacas: z.number().int().positive().optional(),
     toneladas: z.number().positive().optional(),
     valor_por_tonelada: z.number().positive().optional(),
@@ -280,6 +317,11 @@ export const AtualizarFreteSchema = z
     resultado: z.number().optional(),
     pagamento_id: z.string().optional(),
   })
+  .strict()
+  .transform((data) => ({
+    ...data,
+    data_frete: data.data_frete ?? data.dataFrete,
+  }))
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Informe ao menos um campo para atualizar',
   });
@@ -289,15 +331,15 @@ export type AtualizarFreteInput = z.infer<typeof AtualizarFreteSchema>;
 // ==================== FAZENDA ====================
 export const CriarFazendaSchema = z.object({
   id: IdSchema.optional(),
-  fazenda: z.string().min(3),
+  fazenda: z.string().min(3).transform(v => v.toUpperCase()),
   estado: z.preprocess(
     (v) => (typeof v === 'string' ? v.trim().toUpperCase() : v),
     z.enum(['SP', 'MS', 'MT'])
   ),
-  proprietario: z.string().min(3),
-  mercadoria: z.string().min(1),
-  variedade: z.string().optional(),
-  safra: z.string().min(4),
+  proprietario: z.string().min(3).transform(v => v.toUpperCase()),
+  mercadoria: z.string().min(1).transform(v => v.toUpperCase()),
+  variedade: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+  safra: z.string().min(4).transform(v => v.toUpperCase()),
   preco_por_tonelada: z.number().positive(),
   peso_medio_saca: z.number().positive().optional(),
   total_sacas_carregadas: z.number().int().nonnegative().optional(),
@@ -305,7 +347,7 @@ export const CriarFazendaSchema = z.object({
   faturamento_total: z.number().nonnegative().optional(),
   ultimo_frete: z.string().optional(),
   colheita_finalizada: z.boolean().optional(),
-});
+}).strict();
 
 export type CriarFazendaInput = z.infer<typeof CriarFazendaSchema>;
 
@@ -325,7 +367,7 @@ export const IncrementarVolumeSchema = z.object({
   faturamento: z.coerce.number().nonnegative().optional(),
   faturamentoTotal: z.coerce.number().nonnegative().optional(),
   receita_total: z.coerce.number().nonnegative().optional(),
-}).transform((data) => ({
+}).strict().transform((data) => ({
   toneladas: data.toneladas,
   quantidadeSacas: data.quantidadeSacas ?? data.sacas ?? data.quantidade_sacas ?? 0,
   receitaTotal: data.receitaTotal ?? data.faturamentoTotal ?? data.faturamento ?? data.receita_total ?? 0,
@@ -338,17 +380,17 @@ export const CriarCustoSchema = z.object({
   id: IdSchema.optional(),
   frete_id: z.union([z.string().min(1), z.number().int().positive()]),
   tipo: z.enum(['combustivel', 'manutencao', 'pedagio', 'outros']),
-  descricao: z.string().min(3),
+  descricao: z.string().min(3).transform(v => v.toUpperCase()),
   valor: z.number().positive(),
   data: z.string().min(1),
   comprovante: z.boolean().optional(),
-  observacoes: z.string().optional(),
-  motorista: z.string().optional(),
-  caminhao: z.string().optional(),
-  rota: z.string().optional(),
+  observacoes: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+  motorista: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+  caminhao: z.string().optional().transform(v => v ? v.toUpperCase() : v),
+  rota: z.string().optional().transform(v => v ? v.toUpperCase() : v),
   litros: z.number().positive().optional(),
   tipo_combustivel: z.enum(['gasolina', 'diesel', 'etanol', 'gnv']).optional(),
-});
+}).strict();
 
 export type CriarCustoInput = z.infer<typeof CriarCustoSchema>;
 
@@ -363,8 +405,8 @@ export type AtualizarCustoInput = z.infer<typeof AtualizarCustoSchema>;
 export const CriarPagamentoSchema = z.object({
   id: IdSchema.optional(),
   motorista_id: z.union([z.string().min(1), z.number().int().positive()]),
-  motorista_nome: z.string().min(3),
-  periodo_fretes: z.string().min(3),
+  motorista_nome: z.string().min(3).transform(v => v.toUpperCase()),
+  periodo_fretes: z.string().min(3).transform(v => v.toUpperCase()),
   quantidade_fretes: z.number().int().positive(),
   fretes_incluidos: z.string().optional(),
   total_toneladas: z.number().positive(),
@@ -377,7 +419,7 @@ export const CriarPagamentoSchema = z.object({
   comprovante_url: z.string().optional(),
   comprovante_data_upload: z.string().optional(),
   observacoes: z.string().optional(),
-});
+}).strict();
 
 export type CriarPagamentoInput = z.infer<typeof CriarPagamentoSchema>;
 

@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { buildUpdate } from '../utils/sql';
+import { buildUpdate, getPagination } from '../utils/sql';
 import { AtualizarPagamentoSchema, CriarPagamentoSchema } from '../utils/validators';
+import { sendValidationError } from '../utils/validation';
 
 const PAGAMENTO_FIELDS = [
   'motorista_id',
@@ -48,13 +48,21 @@ export class PagamentoController {
     return `${prefixo}${proximoNumero.toString().padStart(3, '0')}`;
   }
 
-  async listar(_req: Request, res: Response): Promise<void> {
+  async listar(req: Request, res: Response): Promise<void> {
     try {
-      const [rows] = await pool.execute('SELECT * FROM pagamentos ORDER BY created_at DESC');
+      const { page, limit, offset } = getPagination(req.query as Record<string, unknown>);
+      const [rowsResult, countResult] = await Promise.all([
+        pool.execute(`SELECT * FROM pagamentos ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`),
+        pool.execute('SELECT COUNT(*) as total FROM pagamentos'),
+      ]);
+      const rows = rowsResult[0];
+      const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
       res.json({
         success: true,
         message: 'Pagamentos listados com sucesso',
         data: rows,
+        meta: { page, limit, total, totalPages },
       } as ApiResponse<unknown>);
     } catch (error) {
       res.status(500).json({
@@ -185,13 +193,7 @@ export class PagamentoController {
         conn.release();
       }
     } catch (error) {
-      if (error instanceof ZodError) {
-        console.log('⚠️ [PAGAMENTO] Erro de validação Zod:', error.errors);
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 
@@ -235,12 +237,7 @@ export class PagamentoController {
         message: 'Pagamento atualizado com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 

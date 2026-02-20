@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { buildUpdate } from '../utils/sql';
-import { AtualizarMotoristaSchemaWithVinculo, sanitizarDocumento } from '../utils/validators';
+import { buildUpdate, getPagination } from '../utils/sql';
+import { AtualizarMotoristaSchemaWithVinculo, CriarMotoristaSchemaWithVinculo, sanitizarDocumento } from '../utils/validators';
+import { sendValidationError } from '../utils/validation';
 
 const MOTORISTA_FIELDS = [
   'id',
@@ -26,13 +26,21 @@ const MOTORISTA_FIELDS = [
 ];
 
 class _MotoristaController {
-  async listar(_req: Request, res: Response): Promise<void> {
+  async listar(req: Request, res: Response): Promise<void> {
     try {
-      const [rows] = await pool.execute('SELECT * FROM motoristas ORDER BY created_at DESC');
+      const { page, limit, offset } = getPagination(req.query as Record<string, unknown>);
+      const [rowsResult, countResult] = await Promise.all([
+        pool.execute(`SELECT * FROM motoristas ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`),
+        pool.execute('SELECT COUNT(*) as total FROM motoristas'),
+      ]);
+      const rows = rowsResult[0];
+      const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
       res.json({
         success: true,
         message: 'Motoristas listados com sucesso',
         data: rows,
+        meta: { page, limit, total, totalPages },
       } as ApiResponse<unknown>);
     } catch (error) {
       res.status(500).json({
@@ -80,34 +88,30 @@ class _MotoristaController {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
+      const payload = CriarMotoristaSchemaWithVinculo.parse(req.body);
       // 1. INSERT sem o campo codigo_motorista
       // Certifique-se de que a coluna codigo_motorista no MySQL permite NULL
-      const {
-        nome, documento, telefone, email, endereco, status, tipo,
-        tipo_pagamento, chave_pix_tipo, chave_pix,
-        banco, agencia, conta, tipo_conta
-      } = req.body;
-      const documentoLimpo = documento ? sanitizarDocumento(String(documento)) : null;
+      const documentoLimpo = payload.documento ? sanitizarDocumento(String(payload.documento)) : null;
       const insertSql = `INSERT INTO motoristas (
         nome, documento, telefone, email, endereco,
         status, tipo, tipo_pagamento, chave_pix_tipo, chave_pix,
         banco, agencia, conta, tipo_conta, receita_gerada, viagens_realizadas
       ) VALUES (${new Array(16).fill('?').join(',')})`;
       const insertParams = [
-      nome,
+      payload.nome,
       documentoLimpo,
-      telefone,
-        email ?? null,
-        endereco ?? null,
-        status || 'ativo',
-        tipo,
-        tipo_pagamento,
-        chave_pix_tipo ?? null,
-        chave_pix ?? null,
-        banco ?? null,
-        agencia ?? null,
-        conta ?? null,
-        tipo_conta ?? null,
+      payload.telefone,
+        payload.email ?? null,
+        payload.endereco ?? null,
+        payload.status || 'ativo',
+        payload.tipo,
+        payload.tipo_pagamento,
+        payload.chave_pix_tipo ?? null,
+        payload.chave_pix ?? null,
+        payload.banco ?? null,
+        payload.agencia ?? null,
+        payload.conta ?? null,
+        payload.tipo_conta ?? null,
         0.00,
         0
       ];
@@ -124,12 +128,15 @@ class _MotoristaController {
       res.status(201).json({ success: true, codigo: novoCodigo });
     } catch (error) {
       await connection.rollback();
+      if (sendValidationError(res, error)) {
+        return;
+      }
       console.error("[MOTORISTA][ERRO TRANSACTION]", error);
       res.status(500).json({ success: false, message: "Erro ao cadastrar motorista" });
     } finally {
       connection.release();
     }
-    }
+  }
 
   async atualizar(req: Request, res: Response): Promise<void> {
     try {
@@ -171,12 +178,7 @@ class _MotoristaController {
         message: 'Motorista atualizado com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 

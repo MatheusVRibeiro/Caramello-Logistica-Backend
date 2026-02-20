@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
-import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { buildUpdate } from '../utils/sql';
+import { buildUpdate, getPagination } from '../utils/sql';
 import { AtualizarCaminhaoSchema, CriarCaminhaoSchema } from '../utils/validators';
 import { normalizeCaminhaoPayload } from '../utils/normalizeCaminhaoPayload';
+import { sendValidationError } from '../utils/validation';
 
 const FROTA_FIELDS = [
   'placa',
@@ -31,11 +31,23 @@ const FROTA_FIELDS = [
 export class FrotaController {
   async listar(_req: Request, res: Response): Promise<void> {
     try {
+        const { page, limit, offset } = getPagination(_req.query as Record<string, unknown>);
         // support query ?vagos=1 to list only vehicles without a fixed driver
         if (_req.query.vagos === '1' || _req.query.vagos === 'true') {
-          const sqlVagos = `SELECT id, placa, modelo, ano_fabricacao FROM frota WHERE motorista_fixo_id IS NULL`;
-            const [rows] = await pool.execute(sqlVagos);
-            res.json({ success: true, data: rows } as ApiResponse<unknown>);
+          const sqlVagos = `SELECT id, placa, modelo, ano_fabricacao FROM frota WHERE motorista_fixo_id IS NULL ORDER BY placa ASC LIMIT ${limit} OFFSET ${offset}`;
+            const [rowsResult, countResult] = await Promise.all([
+              pool.execute(sqlVagos),
+              pool.execute('SELECT COUNT(*) as total FROM frota WHERE motorista_fixo_id IS NULL'),
+            ]);
+            const rows = rowsResult[0];
+            const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
+            const totalPages = Math.max(1, Math.ceil(total / limit));
+            res.json({
+              success: true,
+              message: 'Frota vaga listada com sucesso',
+              data: rows,
+              meta: { page, limit, total, totalPages },
+            } as ApiResponse<unknown>);
             return;
         }
 
@@ -56,17 +68,36 @@ export class FrotaController {
             FROM frota
             WHERE motorista_fixo_id = ?
             ORDER BY placa ASC
+            LIMIT ${limit} OFFSET ${offset}
           `;
-          const [rows] = await pool.execute(sqlMotorista, [motoristaId]);
-          res.json({ success: true, data: rows } as ApiResponse<unknown>);
+          const [rowsResult, countResult] = await Promise.all([
+            pool.execute(sqlMotorista, [motoristaId]),
+            pool.execute('SELECT COUNT(*) as total FROM frota WHERE motorista_fixo_id = ?', [motoristaId]),
+          ]);
+          const rows = rowsResult[0];
+          const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
+          const totalPages = Math.max(1, Math.ceil(total / limit));
+          res.json({
+            success: true,
+            message: 'Frota do motorista listada com sucesso',
+            data: rows,
+            meta: { page, limit, total, totalPages },
+          } as ApiResponse<unknown>);
           return;
         }
 
-        const [rows] = await pool.execute('SELECT * FROM frota ORDER BY created_at DESC');
+        const [rowsResult, countResult] = await Promise.all([
+          pool.execute(`SELECT * FROM frota ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`),
+          pool.execute('SELECT COUNT(*) as total FROM frota'),
+        ]);
+        const rows = rowsResult[0];
+        const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
+        const totalPages = Math.max(1, Math.ceil(total / limit));
         res.json({
           success: true,
           message: 'Frota listada com sucesso',
           data: rows,
+          meta: { page, limit, total, totalPages },
         } as ApiResponse<unknown>);
     } catch (error) {
       res.status(500).json({
@@ -196,14 +227,7 @@ export class FrotaController {
         conn.release();
       }
     } catch (error) {
-      if (error instanceof ZodError) {
-        const messages = error.errors.map((err) => `${err.path.join('.')}: ${err.message}`).join('; ');
-        console.error('[FROTA][CRIAR][VALIDATION_ERROR]', messages);
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: messages,
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 
@@ -274,12 +298,7 @@ export class FrotaController {
         message: 'Veiculo atualizado com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 

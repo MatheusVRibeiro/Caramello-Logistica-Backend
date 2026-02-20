@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { buildUpdate } from '../utils/sql';
+import { buildUpdate, getPagination } from '../utils/sql';
 import { AtualizarUsuarioSchema, CriarUsuarioAdminSchema, sanitizarDocumento } from '../utils/validators';
+import { sendValidationError } from '../utils/validation';
 
 const USUARIO_FIELDS = [
   'nome',
@@ -22,15 +22,23 @@ const USUARIO_FIELDS = [
 ];
 
 export class UsuarioController {
-  async listar(_req: Request, res: Response): Promise<void> {
+  async listar(req: Request, res: Response): Promise<void> {
     try {
-      const [rows] = await pool.execute(
-        'SELECT id, nome, email, role, ativo, telefone, documento, created_at, updated_at FROM usuarios ORDER BY created_at DESC'
-      );
+      const { page, limit, offset } = getPagination(req.query as Record<string, unknown>);
+      const [rowsResult, countResult] = await Promise.all([
+        pool.execute(
+          `SELECT id, nome, email, role, ativo, telefone, documento, created_at, updated_at FROM usuarios ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`
+        ),
+        pool.execute('SELECT COUNT(*) as total FROM usuarios'),
+      ]);
+      const rows = rowsResult[0];
+      const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
       res.json({
         success: true,
         message: 'Usuarios listados com sucesso',
         data: rows,
+        meta: { page, limit, total, totalPages },
       } as ApiResponse<unknown>);
     } catch (error) {
       res.status(500).json({
@@ -129,12 +137,7 @@ export class UsuarioController {
         conn.release();
       }
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados inválidos. Verifique os campos preenchidos.',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error, 'Dados inválidos. Verifique os campos preenchidos.')) {
         return;
       }
 
@@ -196,12 +199,7 @@ export class UsuarioController {
         message: 'Usuario atualizado com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 

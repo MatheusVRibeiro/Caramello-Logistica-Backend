@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { generateToken } from '../middlewares/auth';
 import { CriarUsuarioSchema, LoginSchema } from '../utils/validators';
+import { sendValidationError } from '../utils/validation';
 import { ApiResponse } from '../types';
 
 export class AuthController {
@@ -80,13 +80,7 @@ export class AuthController {
 
       // ...código novo já retorna o id/código na resposta acima...
     } catch (error) {
-      if (error instanceof ZodError) {
-        console.log('⚠️ [REGISTER] Erro de validação Zod:', error.errors);
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 
@@ -231,13 +225,7 @@ export class AuthController {
         },
       });
     } catch (error) {
-      if (error instanceof ZodError) {
-        console.log('⚠️ [LOGIN] Erro de validação Zod:', error.errors);
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
+      if (sendValidationError(res, error)) {
         return;
       }
 

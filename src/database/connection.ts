@@ -21,6 +21,8 @@ const pool = mysql.createPool({
   connectionLimit: 10,   // número máximo de conexões simultâneas
   queueLimit: 0,
   connectTimeout: 10000, // evita travamento se o banco não responder
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
 });
 
 // ======================================================

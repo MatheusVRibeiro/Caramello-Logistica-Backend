@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS fretes (
   motorista_nome VARCHAR(200) NOT NULL,
   caminhao_placa VARCHAR(10) NOT NULL,
   ticket VARCHAR(50) DEFAULT NULL COMMENT 'Número do ticket da balança',
+  numero_nota_fiscal VARCHAR(60) DEFAULT NULL COMMENT 'Nº da nota fiscal',
   fazenda_nome VARCHAR(200),
   mercadoria VARCHAR(100) NOT NULL,
   variedade VARCHAR(100),
@@ -166,6 +167,11 @@ CREATE TABLE IF NOT EXISTS fretes (
   receita DECIMAL(10,2) NOT NULL,
   custos DECIMAL(10,2) DEFAULT 0.00,
   resultado DECIMAL(10,2) COMMENT 'Lucro líquido (receita - custos)',
+  CONSTRAINT chk_fretes_quantidade_sacas CHECK (quantidade_sacas > 0),
+  CONSTRAINT chk_fretes_toneladas CHECK (toneladas > 0),
+  CONSTRAINT chk_fretes_valor_tonelada CHECK (valor_por_tonelada > 0),
+  CONSTRAINT chk_fretes_receita CHECK (receita > 0),
+  CONSTRAINT chk_fretes_custos CHECK (custos >= 0),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (motorista_id) REFERENCES motoristas(id) ON DELETE RESTRICT,
@@ -173,7 +179,10 @@ CREATE TABLE IF NOT EXISTS fretes (
   FOREIGN KEY (fazenda_id) REFERENCES fazendas(id) ON DELETE RESTRICT,
   FOREIGN KEY (pagamento_id) REFERENCES pagamentos(id) ON DELETE SET NULL,
   INDEX idx_data_frete (data_frete),
-  INDEX idx_destino (destino)
+  INDEX idx_destino (destino),
+  INDEX idx_frete_motorista_id (motorista_id),
+  INDEX idx_frete_fazenda_id (fazenda_id),
+  INDEX idx_frete_pagamento_id (pagamento_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
