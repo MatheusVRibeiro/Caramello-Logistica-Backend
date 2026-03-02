@@ -2,7 +2,7 @@
   "name": "logistica-fretes-backend",
   "version": "1.0.0",
   "engines": {
-    "node": ">=20 <23",
+    "node": ">=20",
     "npm": ">=9"
   },
   "description": "Backend para Sistema de Gestão de Logística e Fretes Inteligentess",
